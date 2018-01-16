@@ -1,1 +1,1 @@
-# aggregate-dynamics
+# Temporal dynamics of spatially aggregated quantities with sparse measurement data
