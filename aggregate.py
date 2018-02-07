@@ -80,7 +80,7 @@ class AggregateDynamics:
 
 class Naive(AggregateDynamics):
     def compute(self):
-        self.bestestimate = self.masked.sum(axis=(1,2))
+        self.bestestimate = self.masked.sum(axis=(1,2)).filled(0)
     def plot(self, axes=None):
          ax = axes or plt.gca()
          return ax.plot(self.timeaxis, self.bestestimate,
@@ -89,18 +89,21 @@ class Broken(Naive):
     def compute(self):
         self.bestestimate = self.pixels * self.masked.mean(axis=(1,2))
 
+        self.timeaxis = self.timeaxis[~self.bestestimate.mask]
+        self.bestestimate = self.bestestimate[~self.bestestimate.mask]
+
 class NaiveBounds(AggregateDynamics):
     def compute(self):
-        self.lower = self.masked.sum(axis=(1,2))
-        self.upper = self.pixels - (~self.masked).sum(axis=(1,2))
+        self.lower = self.masked.sum(axis=(1,2)).filled(0)
+        self.upper = self.pixels - (~self.masked).sum(axis=(1,2)).filled(0)
     def plot(self, axes=None):
         ax = axes or plt.gca()
         n = len(self.timeaxis)
         tt = np.vstack([self.timeaxis]*2)
         ww = np.vstack([self.lower, np.zeros(n)])
         dd = np.vstack([self.upper, np.ones(n)*self.pixels])
-        ax.plot(tt, ww, c='b', alpha=0.1)
-        ax.plot(tt, dd, c='r', alpha=0.1)
+        ax.plot(tt, ww, c='b', alpha=0.3)
+        ax.plot(tt, dd, c='r', alpha=0.3)
         #ax.plot(tt, np.vstack([self.upper, self.lower]), c='k')
         ax.plot(self.timeaxis, self.bestestimate, marker='.', linewidth=0, alpha=0.3, c='k')
 
