@@ -54,13 +54,7 @@ def aggregate_chunk():
 
     pass
 
-def polygon_to_grid():
 
-    # return list of interior and border grid units.
-
-    # TODO: multi-level grids
-
-    pass
 
 
 
