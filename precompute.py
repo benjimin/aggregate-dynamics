@@ -52,24 +52,34 @@ def cell_input(x, y):
     # declare enormous array
     import numpy as np
     print(len(results))
-    everything = np.empty((len(results), 4000, 4000))
+    everything = np.empty((len(results), 4000, 4000), dtype=np.uint8)
 
     # load data (ideally with parallel IO)
     import rasterio
-    def task(row, filenames):
-        for name in filenames:
+    def load(task):
+        row, filenames = task
+        for i, name in enumerate(filenames):
             with rasterio.open(name) as f:
                 this = f.read(1)
-            # TODO: implement fuser
-            everything[row,:,:] = this
+            if i: # fuser
+                hole = (everything[row,:,:] & 1).astype(np.bool)
+                overlap = ~(hole | (this & 1).astype(np.bool))
+                everything[row][hole] = this[hole]
+                everything[row][overlap] |= this[overlap]
+            else:
+                everything[row,:,:] = this
 
-    for i,paths in enumerate(results):
-        #TODO: multithreading queue
-        task(i, paths)
+    #for i,paths in enumerate(results):
+    #    load(i, paths)
+    import multiprocessing.dummy as multithreading
+    pool = multithreading.Pool(4)
+    pool.map(load, enumerate(results), chunksize=1)
+    pool.close() # instruct workers to exit when idle
+    pool.join() # wait
 
     return everything
 
-def grid_workflow():
+def grid_workflow(): # TODO: dask?
 
     # declare output array
 
