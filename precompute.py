@@ -81,17 +81,14 @@ def cell_input(x, y):
 
 def grid_workflow():
     import dask
+    import multiprocessing
     # read input in full-temporal depth 100x100 pillars
     x = dask.array.from_array(everything, chunks=(-1, 100, 100))
     # output chunks are a different shape
     agg = dask.array.map_blocks(aggregate_chunk, x,
                                 chunks=(13000,1,1,3), newaxis=3)
-    agg.to_hdf5( )
-
-    # TODO: insist on thread pool..
-    # TODO: write dummy example, to verify that dask will even try to
-    # store things in parallel or not.
-    pass
+    with dask.set_options(pool=multiprocessing.pool.ThreadPool(2)):
+        agg.to_hdf5('output.h5')
 
 def aggregate_chunk():
 
