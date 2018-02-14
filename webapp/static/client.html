@@ -30,7 +30,20 @@ vectors.addFeature(new ol.Feature({geometry: format.readGeometry(example)}));
 function receive(event) {
         vectors.clear();
         vectors.addFeature(event.feature);
-        $('#plot').html(format.writeGeometry(event.feature.getGeometry()));
+        let wkt = format.writeGeometry(event.feature.getGeometry());
+        $('#plot').html(wkt);
+        $.ajax(
+            {
+                url: '../plot',
+                data: wkt,
+                type: 'POST',
+                contentType: 'application/json',
+                success: function(response)
+                    {
+                        console.log(response);
+                        $('#plot').html(response);
+                    }
+            });
 };
 
 draw.on('drawend', receive);
