@@ -35,6 +35,8 @@ even further with a database index or a locally cached database.
 
 """
 
+import logging
+
 def cell_input(x, y):
     global everything
 
@@ -51,7 +53,7 @@ def cell_input(x, y):
 
     # declare enormous array
     import numpy as np
-    print(len(results))
+    logging.info(len(results))
     everything = np.empty((len(results), 4000, 4000), dtype=np.uint8)
 
     # load data (ideally with parallel IO)
