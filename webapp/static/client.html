@@ -27,7 +27,7 @@ map.addInteraction(draw);
 var example = {"type":"Polygon","coordinates":[[[16455167.579347761,-4124576.3832144104],[16563788.776690982,-4470154.756898811],[16835978.048593074,-4143997.36004168],[16455167.579347761,-4124576.3832144104]]]};
 vectors.addFeature(new ol.Feature({geometry: format.readGeometry(example)}));
 
-function receive(event) {
+function onDraw(event) {
         vectors.clear();
         vectors.addFeature(event.feature);
         let wkt = format.writeGeometry(event.feature.getGeometry());
@@ -38,15 +38,17 @@ function receive(event) {
                 data: wkt,
                 type: 'POST',
                 contentType: 'application/json',
-                success: function(response)
-                    {
-                        console.log(response);
-                        $('#plot').html(response);
-                    }
+                success: onReply
             });
 };
 
-draw.on('drawend', receive);
+function onReply(response) {
+    console.log(response);
+    let poly = format.readFeature(response);
+    vectors.addFeature(poly);
+};
+
+draw.on('drawend', onDraw);
 </script>
 </body>
 </html>
