@@ -31,7 +31,7 @@ function onDraw(event) {
         vectors.clear();
         vectors.addFeature(event.feature);
         let wkt = format.writeGeometry(event.feature.getGeometry());
-        $('#plot').html(wkt);
+        $('#plot').html("Requesting..");
         $.ajax(
             {
                 url: '../plot',
@@ -43,7 +43,7 @@ function onDraw(event) {
 };
 
 function onReply(response) {
-    console.log(response);
+    $('#plot').html(JSON.stringify(response));
     let poly = format.readFeature(response);
     vectors.addFeature(poly);
 };
