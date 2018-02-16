@@ -13,10 +13,10 @@ def index():
 @app.route('/plot', methods=['POST'])
 def receive():
     data = flask.request.get_json()
-    assert data['type'] == 'Polygon'
-    poly = shapely.geometry.shape(data)
+    snap = data['snap']
+    poly = shapely.geometry.shape(data['geometry'])
 
-    response = flask.jsonify(geom_to_grid(poly))
+    response = flask.jsonify(geom_to_grid(poly, snap=snap))
     response.status_code = 200
     return response
 
