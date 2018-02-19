@@ -12,19 +12,112 @@ Also todo for sqlite3 conn:
     .load_extension("mod_spatialite")
 
 """
+import string
+import psycopg2
+import logging
+import sqlite3
+import pickle
 
+def cache(x, y):
+    x = int(x)
+    y = int(y)
+
+    filename = 'cache_%i_%i.pkl' % (x, y)
+
+    try:
+        with open(filename, 'rb') as f:
+            results = pickle.load(f)
+        logging.info('Using cache ' + filename)
+    except FileNotFoundError:
+        logging.info('Re-caching ' + filename)
+        results = get(x, y)
+        with open(filename, 'wb') as f:
+            pickle.dump(results, f)
+    return results
 
 def get(x, y):
     # find list of potential datasets (either from filesystem or database)
     # apply filtering on GQA metadata
     # group as appropriate (aiming to fuse down to one layer per day)
     #TODO: Set up local cache sqlite3/spatialite, transferring n rows at a time..
-    import string
-    import psycopg2
     c = psycopg2.connect(host='agdcstaging-db', database='wofstest').cursor()
     sql = string.Template(sql_one_cell).substitute(x=x, y=y, product='wofs_albers')
     c.execute(sql)
     return c.fetchall()
+
+# TODO: get implementation of local index working...
+
+def harvest():
+    global results
+
+    conn = psycopg2.connect(host='agdcstaging-db', database='wofstest')
+    c = conn.cursor(name="ServerSide") # name != none => not client side cursor
+
+    import time
+    t = time.perf_counter()
+    c.execute(sql_harvest);
+    logging.info("Query execution: %f seconds" % (time.perf_counter() - t))
+
+    while True:
+        results = c.fetchmany(1000)
+        if results:
+            yield results
+        else:
+            break
+
+def populate(filepath='local.db'):
+    global c
+    global conn
+
+    conn = sqlite3.connect('local.db')
+
+    c = conn.cursor()
+    c.execute('drop table if exists datasets')
+    c.execute(
+        """create table if not exists datasets(
+        id text, gqa real, path text, time timestamp, x integer, y interger)
+        """)
+    c.executemany("insert into datasets values(?,?,?, ?,?,?)", batch)
+    conn.commit()
+
+
+
+
+
+
+sql_harvest = """
+
+with recursive lineage(child, ancestor) as (
+        select d.id, d.id
+        from agdc.dataset d
+        where d.dataset_type_ref =
+            (select id from agdc.dataset_type where name = 'wofs_albers')
+        and d.archived is null
+    union
+        select h.child, src.source_dataset_ref
+        from lineage h join agdc.dataset_source src
+        on h.ancestor = src.dataset_ref
+)
+select j.*,
+    ((d.metadata->'extent'->>'center_dt')::timestamp at time zone 'UTC') as time,
+    --metadata->'grid_spatial'->>'projection' as spatial
+    (metadata->'grid_spatial'->'projection'->'geo_ref_points'->'ll'->>'x')::numeric / 100000 as x,
+    (metadata->'grid_spatial'->'projection'->'geo_ref_points'->'ll'->>'y')::numeric / 100000 as y
+from (
+    select distinct on (hist.id) hist.*, path.uri_body as filename
+    from (
+        select h.child id,
+            max((src.metadata->'gqa'->'residual'->'iterative_mean'->>'xy')::numeric) gqa
+        from lineage h
+        left join agdc.dataset src on h.ancestor = src.id
+        where src.dataset_type_ref in
+            (select id from agdc.dataset_type where name like '%level1%scene')
+        group by h.child
+    ) as hist
+    join agdc.dataset_location path on hist.id = path.dataset_ref
+) as j
+join agdc.dataset d on d.id = j.id
+"""
 
 
 sql_one_cell = """

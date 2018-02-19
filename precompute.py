@@ -46,24 +46,30 @@ Or, only read a quarter of raw cell (which has 200x200 chunks).
 
 import logging
 
-def cell_input(x, y):
+def cell_input(x, y, window=None):
     global everything
 
     import localindex
-    results = localindex.get(x, y)
+    results = localindex.cache(x, y)[:10]
+
+    window = (0, 2000), (0, 2000)
+    rastershape = [4000, 4000] if window is None else [b-a for a,b in window]
+
+
 
     # declare enormous array
     import numpy as np
     logging.info(len(results))
-    everything = np.empty((len(results), 4000, 4000), dtype=np.uint8)
+    everything = np.zeros([len(results)] + rastershape, dtype=np.uint8)
 
     # load data (ideally with parallel IO)
     import rasterio
     def load(task):
         row, filenames = task
         for i, name in enumerate(filenames):
-            with rasterio.open(name) as f:
-                this = f.read(1)
+            assert name.endswith('.nc')
+            with rasterio.open('NetCDF:' + name + ':water') as f:
+                this = f.read(1, window=window)
             if i: # fuser
                 hole = (everything[row,:,:] & 1).astype(np.bool)
                 overlap = ~(hole | (this & 1).astype(np.bool))
@@ -76,7 +82,7 @@ def cell_input(x, y):
     #    load(i, paths)
     import multiprocessing.dummy as multithreading
     pool = multithreading.Pool(4)
-    pool.map(load, enumerate(results), chunksize=1)
+    pool.map(load, enumerate(fs for (d,fs) in results), chunksize=1)
     pool.close() # instruct workers to exit when idle
     pool.join() # wait
 
