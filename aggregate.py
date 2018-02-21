@@ -20,6 +20,11 @@
  - Some algorithms may permit up-sampling temporal axis at a later stage, but
    others may not after aggregation.
 
+Question: masked boolean array versus (-1, 0, 1) array?
+Presumably masked (implemented as 8bit) is more memory intensive than 3-value.
+Unclear whether 2x1bit is feasible, and practical performance implications.
+Assume not critical for now.
+
 """
 import numpy as np
 import matplotlib.pyplot as plt

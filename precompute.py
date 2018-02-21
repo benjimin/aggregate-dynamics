@@ -43,27 +43,38 @@ Thus, want of order 40gb memory.
 Or, only read a quarter of raw cell (which has 200x200 chunks).
 
 """
-
+import rasterio
+import numpy as np
 import logging
+import localindex
+#import multiprocessing.dummy as multithreading
+import dask.array
+import multiprocessing
 
-def cell_input(x, y, window=None):
+t0 = np.datetime64('1986-01-01', 'D')
+tf = np.datetime64('2020-01-01', 'D')
+day = np.timedelta64(1, 'D')
+epochs = int((tf - t0) / day) + 1 # inclusive count of distinct dates
+newdates = t0 + day * np.arange(epochs)
+assert epochs == len(newdates)
+
+def cell_input(x, y, window=None, limit=None): # e.g. window = (0, 2000), (0, 2000)
     global everything
+    global dates
 
-    import localindex
-    results = localindex.cache(x, y)[:10]
+    results = localindex.cache(x, y)[:limit]
+    dates, filenames = zip(*results)
 
-    window = (0, 2000), (0, 2000)
+    dates = np.asarray(dates, dtype=np.datetime64)
+
     rastershape = [4000, 4000] if window is None else [b-a for a,b in window]
 
-
-
     # declare enormous array
-    import numpy as np
+
     logging.info(len(results))
     everything = np.zeros([len(results)] + rastershape, dtype=np.uint8)
 
     # load data (ideally with parallel IO)
-    import rasterio
     def load(task):
         row, filenames = task
         for i, name in enumerate(filenames):
@@ -80,30 +91,83 @@ def cell_input(x, y, window=None):
 
     #for i,paths in enumerate(results):
     #    load(i, paths)
-    import multiprocessing.dummy as multithreading
-    pool = multithreading.Pool(4)
-    pool.map(load, enumerate(fs for (d,fs) in results), chunksize=1)
+    pool = multiprocessing.pool.ThreadPool(4)
+    #pool = multithreading.Pool(4)
+    pool.map(load, enumerate(filenames), chunksize=1)
     pool.close() # instruct workers to exit when idle
     pool.join() # wait
 
-    return everything
+    return dates, everything
 
 def grid_workflow():
-    import dask
-    import multiprocessing
     # read input in full-temporal depth 100x100 pillars
     x = dask.array.from_array(everything, chunks=(-1, 100, 100))
     # output chunks are a different shape
-    agg = dask.array.map_blocks(aggregate_chunk, x,
-                                chunks=(13000,1,1,3), newaxis=3)
-    with dask.set_options(pool=multiprocessing.pool.ThreadPool(2)):
-        agg.to_hdf5('output.h5')
+    agg = dask.array.map_blocks(aggregate_chunk, x, dtype=np.float32,
+                                chunks=(epochs,1,1,3), new_axis=3)
+    with dask.set_options(pool=multiprocessing.pool.ThreadPool(4)):
+        agg.to_hdf5('output.h5', '/data')
 
-def aggregate_chunk():
+def aggregate_chunk(chunk):
+    global dates
 
-    pass
+    assert epochs == len(newdates)
 
+    def wofs_prep(chunk): # map wofs input to masked boolean
+        chunk &= ~np.uint8(4) # remove ocean masking
 
+        wet = chunk == 128
+        dry = chunk == 0
+        clear = wet | dry
 
+        return np.ma.array(wet, mask=~clear)
 
+    def foliate(chunk, chunkdates):
+        indices = ((chunkdates - t0) /  day).round().astype(int)
 
+        foliage = np.zeros((epochs,) + chunk.shape[1:], dtype=np.bool)
+        foliage = np.ma.array(data=foliage, mask=True)
+
+        foliage[indices] = chunk
+        return foliage
+
+    def interpolate(maskedchunk):
+        data = maskedchunk.data
+        mask = maskedchunk.mask
+
+        past = mask.cumsum(axis=0)
+        future = mask[::-1,...].cumsum(axis=0)[::-1,...]
+        unbound = (past == 0) | (future == 0)
+
+        # constant-value extrapolation
+        epochs = len(data)
+        forward = data.copy()
+        reverse = data.copy()
+        for i in range(1, epochs):
+            gaps = mask[i]
+            forward[i][gaps] = forward[i-1][gaps]
+        for i in range(epochs-1)[::-1]:
+            gaps = mask[i]
+            reverse[i][gaps] = reverse[i+1][gaps]
+
+        upper = forward | reverse | unbound # might be wet
+        lower = forward & reverse & ~unbound # must be wet
+        return upper, lower
+
+    def summarise(upper, lower):
+        upper = upper.sum(axis=(1,2))
+        lower = lower.sum(axis=(1,2))
+
+        estimate = 0.5 * (upper + lower)
+
+        return np.vstack([lower, estimate, upper]).astype(np.float32)
+
+    obs = wofs_prep(chunk)
+
+    foliage = foliate(obs, dates)
+
+    a, b = interpolate(foliage)
+
+    return summarise(a, b).T[:,None,None,:] # -> shape (t,1,1,3)
+
+x = cell_input(15, -40, window=((0,2000),(0,2000)), limit=20)
