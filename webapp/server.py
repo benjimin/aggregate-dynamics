@@ -16,7 +16,7 @@ def receive():
     snap = data['snap']
     poly = shapely.geometry.shape(data['geometry'])
 
-    response = flask.jsonify(geom_to_grid(poly, snap=snap))
+    response = flask.jsonify(geom_to_grid(poly, snap=snap, res=2500))
     response.status_code = 200
     return response
 
@@ -36,7 +36,13 @@ def geom_to_grid(geom, snap=False, res=100000):
                                           transform=affine)
         return list(geom for (geom, value) in shapes)
 
+    # Mask to precomputed extent
+    bounds = shapely.geometry.geo.box(1500000,-3950000,1550000,-3900000)
+    mask = rasterise(bounds, False)
+
     array = rasterise(geom, not snap)
+    if snap:
+        array &= mask
     polygons = vectorise(array)
 
     if not snap:

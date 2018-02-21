@@ -2,6 +2,7 @@
 <head>
 <script src="https://openlayers.org/en/v4.6.4/build/ol.js"></script>
 <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.3.1/jquery.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/proj4js/2.4.4/proj4.js"></script>
 </head>
 <body>
 
@@ -18,6 +19,10 @@ Aggregate Dynamics.
 Use the map to draw a polygon.
 
 <script>
+proj4.defs("EPSG:3577",
+           "+proj=aea +lat_1=-18 +lat_2=-36 +lat_0=0 +lon_0=132 +x_0=0 +y_0=0 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=m +no_defs");
+ol.proj.get("EPSG:3577").setExtent([-2690013.3995, -5098960.4467, 2579169.8548, -1281018.4757]);
+
 var vectors = new ol.source.Vector();
 var format = new ol.format.GeoJSON();
 var map = new ol.Map(
@@ -25,17 +30,23 @@ var map = new ol.Map(
         target: 'map',
         layers: [new ol.layer.Tile({source: new ol.source.OSM()}),
                 new ol.layer.Vector({source: vectors})],
-        view: new ol.View({zoom: 4, center: ol.proj.fromLonLat([135, -30])})
+        view: new ol.View({zoom: 6,
+                           //center: ol.proj.fromLonLat([135, -30]),
+                           center: [1550000,-3950000],
+                           projection: 'EPSG:3577'
+                           })
     });
+//map.getView().fit([1500000, -4000000, 1600000, -3900000]);
+
 var draw = new ol.interaction.Draw({type: 'Polygon'});
 map.addInteraction(draw);
 
-var example = {"type":"Polygon","coordinates":[[[16455167.579347761,-4124576.3832144104],[16563788.776690982,-4470154.756898811],[16835978.048593074,-4143997.36004168],[16455167.579347761,-4124576.3832144104]]]};
-vectors.addFeature(new ol.Feature({geometry: format.readGeometry(example)}));
+//var example = {"type":"Polygon","coordinates":[[[16455167.579347761,-4124576.3832144104],[16563788.776690982,-4470154.756898811],[16835978.048593074,-4143997.36004168],[16455167.579347761,-4124576.3832144104]]]};
+//vectors.addFeature(new ol.Feature({geometry: format.readGeometry(example)}));
 
 function onDraw(event) {
         vectors.clear();
-        vectors.addFeature(event.feature);
+        //vectors.addFeature(event.feature);
         let geom = format.writeGeometryObject(event.feature.getGeometry());
         let snap = $('#snap').is(':checked');
         $('#plot').html("Requesting..");
