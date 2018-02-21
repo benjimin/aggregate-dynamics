@@ -14,9 +14,9 @@ def index():
 def receive():
     data = flask.request.get_json()
     snap = data['snap']
-    poly = shapely.geometry.shape(data['geometry'])
+    geom = shapely.geometry.shape(data['geometry'])
 
-    response = flask.jsonify(geom_to_grid(poly, snap=snap, res=2500))
+    response = flask.jsonify(geom_to_grid(geom, snap=snap, res=2500))
     response.status_code = 200
     return response
 
@@ -43,6 +43,11 @@ def geom_to_grid(geom, snap=False, res=100000):
     array = rasterise(geom, not snap)
     if snap:
         array &= mask
+        y, x = array.nonzero()
+        x += x0 - 600
+        y -= y1 + 1560
+        print(x)
+        print(y)
     polygons = vectorise(array)
 
     if not snap:
