@@ -12,8 +12,10 @@ Aggregate Dynamics.
 
 <div id="plot" style="width: 100%"></div>
 
+<p>
 <form>
-<label><input type="checkbox" id="snap" checked>Snap to grid</label>
+<label><input type="checkbox" id="snap" checked>Snap to grid</label><br>
+<label><input type="checkbox" id="wofs" checked>Overlay WOfS filtered summary</label>
 </form>
 <p>
 Use the map to draw a polygon.
@@ -23,12 +25,22 @@ proj4.defs("EPSG:3577",
            "+proj=aea +lat_1=-18 +lat_2=-36 +lat_0=0 +lon_0=132 +x_0=0 +y_0=0 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=m +no_defs");
 ol.proj.get("EPSG:3577").setExtent([-2690013.3995, -5098960.4467, 2579169.8548, -1281018.4757]);
 
+var wofs = new ol.layer.Tile(
+    {
+        source: new ol.source.TileWMS(
+            {
+                serverType: 'geoserver',
+                url: 'http://eos.ga.gov.au/geoserver/NFRIP-WOfS/wms',
+                params: {'LAYERS': 'NFRIP-WOfS:WaterSummaryFiltered', 'TILED': true}
+            })
+    });
+
 var vectors = new ol.source.Vector();
 var format = new ol.format.GeoJSON();
 var map = new ol.Map(
     {
         target: 'map',
-        layers: [new ol.layer.Tile({source: new ol.source.OSM()}),
+        layers: [new ol.layer.Tile({source: new ol.source.OSM()}), wofs,
                 new ol.layer.Vector({source: vectors})],
         view: new ol.View({zoom: 6,
                            //center: ol.proj.fromLonLat([135, -30]),
@@ -72,6 +84,10 @@ function onReply(response) {
 };
 
 draw.on('drawend', onDraw);
+
+$('#wofs').change(function() {
+    wofs.setVisible( $(this).is(':checked') );
+});
 </script>
 </body>
 </html>
