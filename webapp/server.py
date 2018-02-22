@@ -60,6 +60,12 @@ class grid:
                                            out_shape=self.shape,
                                            transform=self.affine,
                                            all_touched=all_touched)
+    def indices(self, array):
+        j, i = array.nonzero()
+        i += self.x0 - (600)
+        j -= self.y1 - (-1560)
+        return zip(i, j)
+
     def vectorise(self, array):
         shapes = rasterio.features.shapes(array, mask=array,
                                           transform=self.affine)
@@ -77,28 +83,29 @@ class grid:
         mask = self.rasterise(bounds, False)
 
         array = self.rasterise(geom, (not snap))
+        array &= mask
 
         if snap:
-            array &= mask
+            polygons = self.vectorise(array)
+            self.objectify_shapes(polygons)
+        else:
+            partial = self.rasterise(geom.exterior)
+            partial &= mask
 
-        polygons = self.vectorise(array)
+            array[partial != 0] = 0
 
-        if not snap:
-            array2 = self.rasterise(geom.exterior)
-            array[array2 != 0] = 0
-            polygons += self.vectorise(array)
-
-        self.objectify_shapes(polygons)
-
-        j, i = array.nonzero()
-        i += self.x0 - (600)
-        j -= self.y1 - (-1560)
+            clipped = geom.intersection(bounds)
+            self.geom = shapely.geometry.mapping(clipped)
+            #polygons += self.vectorise(partial)
 
         ds = self.file['data']
 
-
-
-        summary = sum(ds[:,y,x,:] for (x,y) in zip (i,j))
+        # TODO: handle if array or partial are entirely empty
+        summary = sum(ds[:,y,x,:] for (x,y) in self.indices(array))
+        if not snap:
+            possible = sum(ds[:,y,x,1:] for (x,y) in self.indices(partial))
+            summary[:,-2] += 0.5 * possible[:,-2] # best guess half inside poly
+            summary[:,-1] += possible[:,-1] # upper envelope grows, not lower
 
         x = newdates.astype(datetime.datetime)
         ymin, y, ymax = summary.T * (25**2) / (100**2) # pixels -> hectares
