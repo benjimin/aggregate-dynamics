@@ -62,9 +62,10 @@ function onDraw(event) {
 };
 
 function onReply(response) {
-    $('#plot').html("");
-    let poly = format.readFeature(response);
+    let poly = format.readFeature(response['geometry']);
     vectors.addFeature(poly);
+    $('#plot').html(response['output']);
+    // TODO: make fit.. e.g. $('#plot > svg').width(?)
 };
 
 draw.on('drawend', onDraw);

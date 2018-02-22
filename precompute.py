@@ -91,7 +91,7 @@ def cell_input(x, y, window=None, limit=None): # e.g. window = (0, 2000), (0, 20
 
     #for i,paths in enumerate(results):
     #    load(i, paths)
-    pool = multiprocessing.pool.ThreadPool(4)
+    pool = multiprocessing.pool.ThreadPool(16)
     #pool = multithreading.Pool(4)
     pool.map(load, enumerate(filenames), chunksize=1)
     pool.close() # instruct workers to exit when idle
@@ -100,12 +100,13 @@ def cell_input(x, y, window=None, limit=None): # e.g. window = (0, 2000), (0, 20
     return dates, everything
 
 def grid_workflow():
+    global everything
     # read input in full-temporal depth 100x100 pillars
     x = dask.array.from_array(everything, chunks=(-1, 100, 100))
     # output chunks are a different shape
     agg = dask.array.map_blocks(aggregate_chunk, x, dtype=np.float32,
                                 chunks=(epochs,1,1,3), new_axis=3)
-    with dask.set_options(pool=multiprocessing.pool.ThreadPool(4)):
+    with dask.set_options(pool=multiprocessing.pool.ThreadPool(2)):
         agg.to_hdf5('output.h5', '/data')
 
 def aggregate_chunk(chunk):
@@ -140,7 +141,6 @@ def aggregate_chunk(chunk):
         unbound = (past == 0) | (future == 0)
 
         # constant-value extrapolation
-        epochs = len(data)
         forward = data.copy()
         reverse = data.copy()
         for i in range(1, epochs):
@@ -170,4 +170,7 @@ def aggregate_chunk(chunk):
 
     return summarise(a, b).T[:,None,None,:] # -> shape (t,1,1,3)
 
-x = cell_input(15, -40, window=((0,2000),(0,2000)), limit=20)
+#x = cell_input(15, -40, window=((0,2000),(0,2000)), limit=20)
+
+#%time x = cell_input(15, -40, window=((0,2000),(0,2000)))
+#%time grid_workflow()
