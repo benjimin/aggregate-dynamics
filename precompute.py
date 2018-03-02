@@ -50,17 +50,46 @@ import localindex
 #import multiprocessing.dummy as multithreading
 import dask.array
 import multiprocessing
+import functools
+import operator
+import mmap
 
+window = ((0,2000),(0,2000))
 t0 = np.datetime64('1986-01-01', 'D')
 tf = np.datetime64('2020-01-01', 'D')
+
 day = np.timedelta64(1, 'D')
 epochs = int((tf - t0) / day) + 1 # inclusive count of distinct dates
 newdates = t0 + day * np.arange(epochs)
 assert epochs == len(newdates)
 
+def sharedarray(shape, dtype):
+    size = functools.reduce(operator.mul, shape) * np.dtype(dtype).itemsize
+    class releasor(mmap.mmap):
+        def __del__(self):
+            self.close()
+    buffer = releasor(-1, size)
+    return np.frombuffer(buffer, dtype=dtype).reshape(shape)
+
+def load(row, filenames):
+    global obsdata
+    global rasterwindow
+    dest = obsdata[row]
+    for i, name in enumerate(filenames):
+        assert name.endswith('.nc')
+        with rasterio.open('NetCDF:' + name + ':water') as f:
+            this = f.read(1, window=rasterwindow, out=(None if i else dest))
+        if i: # fuser
+            hole = (dest & 1).astype(np.bool)
+            overlap = ~(hole | (this & 1).astype(np.bool))
+            dest[hole] = this[hole]
+            dest[overlap] |= this[overlap]
+
 def cell_input(x, y, window=None, limit=None): # e.g. window = (0, 2000), (0, 2000)
-    global everything
-    global dates
+    global obsdata
+    global rasterwindow
+
+    rasterwindow = window
 
     results = localindex.cache(x, y)[:limit]
     dates, filenames = zip(*results)
@@ -71,33 +100,18 @@ def cell_input(x, y, window=None, limit=None): # e.g. window = (0, 2000), (0, 20
 
     # declare enormous array
 
-    logging.info(len(results))
-    everything = np.zeros([len(results)] + rastershape, dtype=np.uint8)
+    pixels = (lambda x,y : x*y)(*rastershape)
+    obs = len(results)
+    size = pixels * obs
 
-    # load data (ideally with parallel IO)
-    def load(task):
-        row, filenames = task
-        for i, name in enumerate(filenames):
-            assert name.endswith('.nc')
-            with rasterio.open('NetCDF:' + name + ':water') as f:
-                this = f.read(1, window=window)
-            if i: # fuser
-                hole = (everything[row,:,:] & 1).astype(np.bool)
-                overlap = ~(hole | (this & 1).astype(np.bool))
-                everything[row][hole] = this[hole]
-                everything[row][overlap] |= this[overlap]
-            else:
-                everything[row,:,:] = this
+    logging.info(str(obs))
 
-    #for i,paths in enumerate(results):
-    #    load(i, paths)
-    pool = multiprocessing.pool.ThreadPool(16)
-    #pool = multithreading.Pool(4)
-    pool.map(load, enumerate(filenames), chunksize=1)
-    pool.close() # instruct workers to exit when idle
-    pool.join() # wait
+    obsdata = sharedarray([obs]+rastershape, np.uint8)
 
-    return dates, everything
+    with multiprocessing.Pool(8) as pool:
+        pool.starmap(load, enumerate(filenames))
+
+    return dates, obsdata
 
 def grid_workflow():
     global everything
@@ -172,5 +186,5 @@ def aggregate_chunk(chunk):
 
 #x = cell_input(15, -40, window=((0,2000),(0,2000)), limit=20)
 
-#%time x = cell_input(15, -40, window=((0,2000),(0,2000)))
-#%time grid_workflow()
+# %time x = cell_input(15, -40, window=((0,2000),(0,2000)))
+# %time grid_workflow()
