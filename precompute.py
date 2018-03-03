@@ -47,12 +47,12 @@ import rasterio
 import numpy as np
 import logging
 import localindex
-#import multiprocessing.dummy as multithreading
 import dask.array
 import multiprocessing
 import functools
 import operator
 import mmap
+import zarr
 
 window = ((0,2000),(0,2000))
 t0 = np.datetime64('1986-01-01', 'D')
@@ -149,10 +149,11 @@ def aggregate_chunk(chunk):
     def interpolate(maskedchunk):
         data = maskedchunk.data
         mask = maskedchunk.mask
+        clear = ~mask
 
-        past = mask.cumsum(axis=0)
-        future = mask[::-1,...].cumsum(axis=0)[::-1,...]
-        unbound = (past == 0) | (future == 0)
+        past = clear.cumsum(axis=0, dtype=np.bool)
+        future = clear[::-1,...].cumsum(axis=0, dtype=np.bool)[::-1,...]
+        unbound = past & future
 
         # constant-value extrapolation
         forward = data.copy()
