@@ -25,7 +25,10 @@ def receive():
     g = grid(geom, snap=snap, width=width)
 
     #response = flask.jsonify(dict(geometry=g.geom, output='<h1>Hello</h1>'))
-    response = flask.jsonify(dict(geometry=g.geom, output=g.image))
+    response = flask.jsonify(dict(geometry=g.geom, output=g.image,
+                                  dates=newdates.astype(str).tolist(), # aiming for ISO8601 dates
+                                  data=g.estimate.tolist()
+                                  ))
 
     #response = flask.jsonify(geom_to_grid(geom, snap=snap, res=2500))
     response.status_code = 200
@@ -106,6 +109,8 @@ class grid:
             possible = sum(ds[:,y,x,1:] for (x,y) in self.indices(partial))
             summary[:,-2] += 0.5 * possible[:,-2] # best guess half inside poly
             summary[:,-1] += possible[:,-1] # upper envelope grows, not lower
+
+        self.estimate = summary[:,1]
 
         x = newdates.astype(datetime.datetime)
         ymin, y, ymax = summary.T * (25**2) / (100**2) # pixels -> hectares
