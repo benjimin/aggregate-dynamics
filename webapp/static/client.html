@@ -8,7 +8,6 @@
 </head>
 <body>
 
-<div id="container" style="width:100%">
 <div id="controls" style="float:left; width:20%">
 Aggregate Dynamics.
 <p>
@@ -21,14 +20,14 @@ Aggregate Dynamics.
 
 </div>
 <div id="map" style="width:80%; height:500px; float:left"></div>
-</div>
 
-<div id="plot" style="width:100%"></div>
 
-<div id="plot2" style="width:100%"></div>
+<div id="plot" style="width:100%; clear:left"></div>
+
+<div id="plot2" style="width:100%; height:200px; clear:left"></div>
 
 <p>
-
+Temporal dynamics of spatially aggregated quantities with sparse measurement data
 <p>
 
 
@@ -79,7 +78,7 @@ function onDraw(event) {
                 url: '../plot',
                 data: JSON.stringify({"snap":snap,
                                       "geometry":geom,
-                                      "width":$('#plot').width()
+                                      "width":$('#plot2').width()
                                       }),
                 type: 'POST',
                 contentType: 'application/json',
@@ -88,12 +87,70 @@ function onDraw(event) {
             });
 };
 
+
+
+var w = $('#plot2').width(),
+    h = $('#plot2').height(),
+    m = 20;
+
+console.log(w);
+console.log(h);
+
+var svg = d3.select('#plot2').append("svg").attr("width", w).attr("height", h);
+
+svg.append("rect").attr("width", w).attr("height", h)
+        .style("fill", "none").style("stroke", "black");
+
+w = w - m - m;
+h = h - m - m;
+
+var x = d3.scaleTime().range([0, w]);
+var y = d3.scaleLinear().range([h, 0]);
+
+var bottom = svg.append("g").attr("transform", "translate(20, 180)");
+var xaxismaker = d3.axisBottom(x);
+var left = svg.append("g").attr("transform", "translate(20, 20)");
+var yaxismaker = d3.axisLeft(y);
+
+var plotregion = svg.append("g").attr("transform", "translate(20,20)");
+
+var r = plotregion.append("rect").attr("width", w).attr("height", h)
+    .style("fill", "none").style("stroke", "black");
+
+var estimate = d3.line()
+                     .x(d => x(d[0]))
+                     .y(d => y(d[2]));
+var uncertainty = d3.area()
+                     .x(d => x(d[0]))
+                     .y0(d => y(d[1]))
+                     .y1(d => y(d[3]));
+
+var curve = plotregion.append("path").style("fill", "none").style("stroke", "#00F");
+var envelope = plotregion.append("path").style("fill", "#005").style("stroke", "#00F");
+
+var dates;
+var data;
+var coords;
+
 function onReply(response) {
     let poly = format.readFeature(response['geometry']);
     vectors.addFeature(poly);
     $('#plot').html(response['output']);
-    console.log(response['dates'].map(x => new Date(x)));
-    console.log(response['data']);
+
+    dates = response['dates'].map(x => new Date(x));
+    data = response['data'];
+
+    data = [...data.keys()].map(i => [dates[i], ...data[i]]);
+
+    x.domain([dates[0], dates.slice(-1)[0]]);
+    y.domain([d3.min(data.map(d => d[1])), d3.max(data.map(d=>d[3]))]);
+
+    curve.datum(data).attr("d", estimate);
+    envelope.datum(data).attr("d", uncertainty);
+    bottom.call(xaxismaker);
+    left.call(yaxismaker);
+
+
 };
 
 draw.on('drawend', onDraw);
@@ -101,6 +158,18 @@ draw.on('drawend', onDraw);
 $('#wofs').change(function() {
     wofs.setVisible( $(this).is(':checked') );
 });
+
+var zoomcatcher = d3.zoom().on("zoom", zoomhandler);
+
+svg.call(zoomcatcher);
+
+function zoomhandler() {
+    x.domain(d3.event.transform.rescaleX(x).domain());
+    curve.attr("d", estimate);
+    envelope.attr("d", uncertainty);
+    bottom.call(xaxismaker);
+};
+
 </script>
 </body>
 </html>
