@@ -117,9 +117,6 @@ plotregion.append('g').attr("transform", tr(-50, h/2))
 plotregion.append("defs").append("clipPath").attr("id", "cliparea")
         .append("rect").attr("width", w).attr("height", h);
 
-var r = plotregion.append("rect").attr("width", w).attr("height", h)
-    .style("fill", "none").style("stroke", "black");
-
 var estimate = d3.line()
                      .x(d => x(d[0]))
                      .y(d => y(d[2]));
@@ -137,6 +134,9 @@ var envelope = plotregion.append("path")
                 .style("fill-opacity", 0.5)
                 .style("clip-path", "url(#cliparea)");
 
+
+var r = plotregion.append("rect").attr("width", w).attr("height", h)
+    .style("fill-opacity", 0).style("stroke", "black");
 
 var dates;
 var data;
@@ -173,7 +173,7 @@ var zoomcatcher = d3.zoom().on("zoom", zoomhandler)
         .scaleExtent([1, Infinity]).translateExtent([[0, 0], [w, h]])
         .extent([[0, 0], [w, h]]);
 
-svg.call(zoomcatcher);
+r.call(zoomcatcher);
 
 function zoomhandler() {
     x.domain(d3.event.transform.rescaleX(x2).domain());
