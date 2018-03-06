@@ -91,28 +91,36 @@ function onDraw(event) {
 
 var w = $('#plot2').width(),
     h = $('#plot2').height(),
-    m = 20;
+    m = {"left": 100, "bottom": 20, "right": 20, "top": 20};
+
 
 console.log(w);
 console.log(h);
 
 var svg = d3.select('#plot2').append("svg").attr("width", w).attr("height", h);
 
-svg.append("rect").attr("width", w).attr("height", h)
-        .style("fill", "none").style("stroke", "black");
-
-w = w - m - m;
-h = h - m - m;
+w = w - m.left - m.right;
+h = h - m.top - m.bottom;
 
 var x = d3.scaleTime().range([0, w]);
+var x2 = x.copy();
 var y = d3.scaleLinear().range([h, 0]);
 
-var bottom = svg.append("g").attr("transform", "translate(20, 180)");
+function tr(tx, ty) { return "translate(" + [tx, ty].toString() + ")" };
+
+var bottom = svg.append("g").attr("transform", tr(m.left, h + m.top));
 var xaxismaker = d3.axisBottom(x);
-var left = svg.append("g").attr("transform", "translate(20, 20)");
+var left = svg.append("g").attr("transform", tr(m.left, m.top));
 var yaxismaker = d3.axisLeft(y);
 
-var plotregion = svg.append("g").attr("transform", "translate(20,20)");
+var plotregion = svg.append("g").attr("transform", tr(m.left, m.top));
+
+plotregion.append('g').attr("transform", tr(-50, h/2))
+    .append("text").attr("text-anchor", "middle")
+    .attr("transform","rotate(-90)").text("water (hectares)")
+
+plotregion.append("defs").append("clipPath").attr("id", "cliparea")
+        .append("rect").attr("width", w).attr("height", h);
 
 var r = plotregion.append("rect").attr("width", w).attr("height", h)
     .style("fill", "none").style("stroke", "black");
@@ -125,8 +133,15 @@ var uncertainty = d3.area()
                      .y0(d => y(d[1]))
                      .y1(d => y(d[3]));
 
-var curve = plotregion.append("path").style("fill", "none").style("stroke", "#00F");
-var envelope = plotregion.append("path").style("fill", "#005").style("stroke", "#00F");
+var curve = plotregion.append("path").style("fill", "none")
+                .style("stroke", "midnightblue")
+                .style("stroke-width", 2)
+                .style("clip-path", "url(#cliparea)");
+var envelope = plotregion.append("path")
+                .style("fill", "steelblue").style("stroke", "none")
+                .style("fill-opacity", 0.5)
+                .style("clip-path", "url(#cliparea)");
+
 
 var dates;
 var data;
@@ -143,6 +158,7 @@ function onReply(response) {
     data = [...data.keys()].map(i => [dates[i], ...data[i]]);
 
     x.domain([dates[0], dates.slice(-1)[0]]);
+    x2 = x.copy();
     y.domain([d3.min(data.map(d => d[1])), d3.max(data.map(d=>d[3]))]);
 
     curve.datum(data).attr("d", estimate);
@@ -159,12 +175,14 @@ $('#wofs').change(function() {
     wofs.setVisible( $(this).is(':checked') );
 });
 
-var zoomcatcher = d3.zoom().on("zoom", zoomhandler);
+var zoomcatcher = d3.zoom().on("zoom", zoomhandler)
+        .scaleExtent([1, Infinity]).translateExtent([[0, 0], [w, h]])
+        .extent([[0, 0], [w, h]]);
 
 svg.call(zoomcatcher);
 
 function zoomhandler() {
-    x.domain(d3.event.transform.rescaleX(x).domain());
+    x.domain(d3.event.transform.rescaleX(x2).domain());
     curve.attr("d", estimate);
     envelope.attr("d", uncertainty);
     bottom.call(xaxismaker);

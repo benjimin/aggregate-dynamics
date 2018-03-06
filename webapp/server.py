@@ -110,7 +110,7 @@ class grid:
             summary[:,-2] += 0.5 * possible[:,-2] # best guess half inside poly
             summary[:,-1] += possible[:,-1] # upper envelope grows, not lower
 
-        self.data = summary
+        self.data = summary * (25**2) / (100**2)
 
         x = newdates.astype(datetime.datetime)
         ymin, y, ymax = summary.T * (25**2) / (100**2) # pixels -> hectares
