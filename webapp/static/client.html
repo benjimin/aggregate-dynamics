@@ -21,10 +21,7 @@ Aggregate Dynamics.
 </div>
 <div id="map" style="width:80%; height:500px; float:left"></div>
 
-
-<div id="plot" style="width:100%; clear:left"></div>
-
-<div id="plot2" style="width:100%; height:200px; clear:left"></div>
+<div id="plot" style="width:100%; height:200px; clear:left"></div>
 
 <p>
 Temporal dynamics of spatially aggregated quantities with sparse measurement data
@@ -72,13 +69,11 @@ function onDraw(event) {
         //vectors.addFeature(event.feature);
         let geom = format.writeGeometryObject(event.feature.getGeometry());
         let snap = $('#snap').is(':checked');
-        $('#plot').html("Requesting..");
         $.ajax(
             {
                 url: '../plot',
                 data: JSON.stringify({"snap":snap,
-                                      "geometry":geom,
-                                      "width":$('#plot2').width()
+                                      "geometry":geom
                                       }),
                 type: 'POST',
                 contentType: 'application/json',
@@ -89,15 +84,15 @@ function onDraw(event) {
 
 
 
-var w = $('#plot2').width(),
-    h = $('#plot2').height(),
+var w = $('#plot').width(),
+    h = $('#plot').height(),
     m = {"left": 100, "bottom": 20, "right": 20, "top": 20};
 
 
 console.log(w);
 console.log(h);
 
-var svg = d3.select('#plot2').append("svg").attr("width", w).attr("height", h);
+var svg = d3.select('#plot').append("svg").attr("width", w).attr("height", h);
 
 w = w - m.left - m.right;
 h = h - m.top - m.bottom;
@@ -150,7 +145,6 @@ var coords;
 function onReply(response) {
     let poly = format.readFeature(response['geometry']);
     vectors.addFeature(poly);
-    $('#plot').html(response['output']);
 
     dates = response['dates'].map(x => new Date(x));
     data = response['data'];

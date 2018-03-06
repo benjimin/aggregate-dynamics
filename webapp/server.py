@@ -4,8 +4,6 @@ import numpy as np
 import math
 import rasterio.features
 import h5py
-import matplotlib.pyplot as plt
-import io
 import datetime
 
 app = flask.Flask(__name__)
@@ -19,13 +17,11 @@ def receive():
     data = flask.request.get_json()
     snap = data['snap']
     geom = shapely.geometry.shape(data['geometry'])
-    width = data['width']
-    print(width, type(width))
 
-    g = grid(geom, snap=snap, width=width)
+    g = grid(geom, snap=snap)
 
     #response = flask.jsonify(dict(geometry=g.geom, output='<h1>Hello</h1>'))
-    response = flask.jsonify(dict(geometry=g.geom, output=g.image,
+    response = flask.jsonify(dict(geometry=g.geom,
                                   dates=newdates.astype(str).tolist(), # aiming for ISO8601 dates
                                   data=g.data.tolist()
                                   ))
@@ -45,7 +41,7 @@ newdates = t0 + day * np.arange(epochs)
 class grid:
     file = h5py.File('../output.h5', 'r')
 
-    def __init__(self, geom, snap=True, res=2500, width=400):
+    def __init__(self, geom, snap=True, res=2500):
         x0,y0,x1,y1 = np.asarray(geom.bounds) / res
         x0,y0,x1,y1 = math.floor(x0), math.floor(y0), math.ceil(x1), math.ceil(y1)
 
@@ -53,8 +49,6 @@ class grid:
         self.shape = (y1-y0, x1-x0)
         self.x0 = x0
         self.y1 = y1
-
-        self.width = width
 
         self.process(geom, snap)
 
@@ -112,17 +106,5 @@ class grid:
 
         self.data = summary * (25**2) / (100**2)
 
-        x = newdates.astype(datetime.datetime)
-        ymin, y, ymax = summary.T * (25**2) / (100**2) # pixels -> hectares
-
-        plt.plot(x, y)
-        plt.gcf().set_size_inches(self.width / plt.gcf().dpi, 2)
-        plt.ylabel('water (hectares)')
-        plt.gca().fill_between(x, ymin, ymax, alpha=0.5)
-
-        f = io.BytesIO()
-        plt.savefig(f, format='svg', dpi=200)
-        self.image = str(f.getvalue(), 'utf-8')
-        plt.close()
 
 
