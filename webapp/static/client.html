@@ -31,7 +31,7 @@ Temporal dynamics of spatially aggregated quantities with sparse measurement dat
 <script>
 proj4.defs("EPSG:3577",
            "+proj=aea +lat_1=-18 +lat_2=-36 +lat_0=0 +lon_0=132 +x_0=0 +y_0=0 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=m +no_defs");
-ol.proj.get("EPSG:3577").setExtent([-2690013.3995, -5098960.4467, 2579169.8548, -1281018.4757]);
+ol.proj.get("EPSG:3577").setExtent([-2700000, -5100000, 2600000, -1000000]);
 
 var wofs = new ol.layer.Tile(
     {
@@ -45,16 +45,19 @@ var wofs = new ol.layer.Tile(
 
 var vectors = new ol.source.Vector();
 var format = new ol.format.GeoJSON();
+var view =  new ol.View({zoom: 6,
+                         //center: ol.proj.fromLonLat([135, -30]),
+                         center: [1550000,-3950000],
+                         projection: 'EPSG:3577',
+                         extent: [-2700000, -5100000, 2600000, -1000000]
+                         });
+
 var map = new ol.Map(
     {
         target: 'map',
         layers: [new ol.layer.Tile({source: new ol.source.OSM()}), wofs,
                 new ol.layer.Vector({source: vectors})],
-        view: new ol.View({zoom: 6,
-                           //center: ol.proj.fromLonLat([135, -30]),
-                           center: [1550000,-3950000],
-                           projection: 'EPSG:3577'
-                           })
+        view: view
     });
 //map.getView().fit([1500000, -4000000, 1600000, -3900000]);
 
