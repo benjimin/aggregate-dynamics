@@ -1,7 +1,9 @@
 <html>
 <head>
 <title>Aggregate Dynamics</title>
-<script src="https://openlayers.org/en/v4.6.4/build/ol.js"></script>
+<link rel="stylesheet" href="https://openlayers.org/en/v4.6.4/css/ol.css" type="text/css">
+<!-- debugging <script src="https://openlayers.org/en/v4.6.4/build/ol.js"></script> -->
+<script src="https://openlayers.org/en/v4.6.4/build/ol-debug.js"></script>
 <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.3.1/jquery.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/proj4js/2.4.4/proj4.js"></script>
 <script src="https://d3js.org/d3.v4.min.js"></script>
@@ -57,7 +59,8 @@ var map = new ol.Map(
         target: 'map',
         layers: [new ol.layer.Tile({source: new ol.source.OSM()}), wofs,
                 new ol.layer.Vector({source: vectors})],
-        view: view
+        view: view,
+        controls: [] // omit attribution and zoom buttons
     });
 //map.getView().fit([1500000, -4000000, 1600000, -3900000]);
 
@@ -94,6 +97,8 @@ var w = $('#plot').width(),
 
 console.log(w);
 console.log(h);
+
+
 
 var svg = d3.select('#plot').append("svg").attr("width", w).attr("height", h);
 
@@ -162,8 +167,6 @@ function onReply(response) {
     envelope.datum(data).attr("d", uncertainty);
     bottom.call(xaxismaker);
     left.call(yaxismaker);
-
-
 };
 
 draw.on('drawend', onDraw);
@@ -179,10 +182,18 @@ var zoomcatcher = d3.zoom().on("zoom", zoomhandler)
 r.call(zoomcatcher);
 
 function zoomhandler() {
-    x.domain(d3.event.transform.rescaleX(x2).domain());
+    x.domain((d3.event).transform.rescaleX(x2).domain());
     curve.attr("d", estimate);
     envelope.attr("d", uncertainty);
     bottom.call(xaxismaker);
+};
+
+view.constraints_.center = function(center) {
+    r = view.getResolution();
+    ext = view.options_.extent;
+    pad = map.getSize().map(x => x * r / 2);
+    return [ ol.math.clamp(center[0], ext[0] + pad[0], ext[2] - pad[0]),
+             ol.math.clamp(center[1], ext[1] + pad[1], ext[3] - pad[1]) ];
 };
 
 </script>

@@ -26,13 +26,91 @@ Unclear whether 2x1bit is feasible, and practical performance implications.
 Assume not critical for now.
 
 """
+
+"""
+Reassessment.
+
+The primary focus is the constant bracketting. (Generalisability of this to
+other semi-useful algorithms would be nice but not necessary.) In particular
+the theoretically preferable algorithm is probably too different, and it
+is premature to design a model that admits both at this stage.
+
+Simplify the interface. For example, let the caller reduce xarrays to
+numpy arrays, if the caller wishes to deal with higher layers. It isn't
+terribly difficult for the caller, and it simplifies debugging significantly.
+
+Basic use case: a series of (incomplete raster) observations exist, and are
+associated with arbitrary timestamps. We wish to output a series on a regular
+time interval, and can tolerate insisting this be consecutive dates (even
+between fixed ranges). The timestamps must be mapped to date indices.
+Then interpolate and aggregate. At some point the workflow will need to be
+chunked.
+
+Core: timestamps + rasters => (via 3D dense array) => fine time-series
+
+Ideally would read rasterfiles directly into dense array. Will probably not do
+this (not going to deoptimise IO for one memcopy).
+
+"""
+
+
+
 import numpy as np
 import matplotlib.pyplot as plt
 import collections
 import xarray
+import pandas
+
+class WofsFuse(WofsExist):
+    def prefilter(self, time, data):
+        # convert times to (local) dates
+        if self.time is not None:
+            self.time = self.time.astype('datetime64[D]')
+        time = (time + np.timedelta64(10, 'h')).astype('datetime64[D]')
+
+        # fuser distinguishes obscuration from nodata
+        def fuser(parts):
+            A = parts[0]
+            for B in parts.data[1:]:
+                noA = (A.data & 1).astype(np.bool)
+                noB = (B & 1).astype(np.bool)
+                overlap = ~(noA | noB)
+                A.data[noA] = B[noA] # try to fill gaps
+                A.data[overlap] |= B[overlap] # merge flags conservatively
+            return A
+
+        # merge same-day observations
+        x = xarray.DataArray(data)
+        x[x.dims[0]] = time
+        new = x.groupby(x.dims[0]).apply(fuser).data
+        time = np.unique(time)
+
+        # may simplify bitfield after fusing
+        return super().prefilter(time, new)
+
+def wofsprefilter(utctime, array):
+    t = (utctime + np.timedelta64(10, 'h')).astype('datetime64[D]')) # local date
+    new = np.empty((t.size,) + array.shape[1:], dtype=np.uint8)
+
+    def fuser(group):
+        A = group[0]
+        for B in group.data[1:]:
+            noA = (1 & A.data).astype(np.bool)
+            noB = (1 & B).astype(np.bool)
+            overlap = ~(noA | noB)
+            A.data[noA] = B[noA]
+            A.data[overlap] |= B[overlap]
+        return A
+
+    xr = xarray.DataArray(array)
+    xr[xr.dims[0]] = t
+    new = xr.groupby(xr.dims[0]).apply(fuser)
+
+    return np.uunique(t), new.data
 
 class Aggregator:
     def __init__(self, timeaxis=None): # TODO: permit a mask argument (e.g. a geometry)
+        self.index = None
         if timeaxis is None:
             self.time = None
         else:
@@ -74,11 +152,22 @@ class Aggregator:
     def compute(self, time, data):
         """ Aggregate numpy n-vector and n x m inputs """
         raise NotImplementedError
-    def foliate(self, time, data, fill=np.nan):
-        shape = list(data.shape)
-        shape[0] = len(self.time)
-        new = np.full(shape, fill, data.dtype)
-        raise NotImplementedError
+    def foliate(self, time, data):
+        global dummy
+        if len(time) == len(self.time):
+            return data
+        if self.index is None:
+            self.index = pandas.DatetimeIndex(self.time)
+        shape = (len(self.time),) + data.shape[1:]
+        if np.ma.is_masked(data):
+            foliage = np.empty(shape, dtype=data.dtype)
+            foliage = np.ma.array(data=foliage, mask=True)
+        else:
+            foliage = np.zeros(shape, data.dtype)
+        dummy = time, self.time, self.index
+        for t, layer in zip(time, data):
+            foliage[self.index.get_loc(t)] = layer
+        return foliage
 
 class Aggregation:
     def __init__(self, timeaxis, data, pixels, aggregator):
@@ -97,7 +186,7 @@ class Aggregation:
         raise NotImplementedError
     def envelopeplot(self, axes=None):
         ax = axes or plt.gca()
-        envelope = ax.fill_between(self.time, self.upper, self.lower, alpha=0.3)
+        envelope = ax.fill_between(self.time, self.upper, self.lower, alpha=0.5)
         line = ax.plot(self.time, self.estimate)
         return [envelope, line]
     def discreteplot(self, axes=None, marker='.'):
@@ -132,22 +221,50 @@ class WofsExist(WofsMask):
     """Exclude dates with no valid pixels"""
     def prefilter(self, time, data):
         time, data = super().prefilter(time, data)
-        inclusion = (~data.mask).sum(axis=1).astype(np.bool)
+        spatial = tuple(range(data.ndim)[1:])
+        inclusion = (~data.mask).sum(axis=spatial).astype(np.bool)
         return time[inclusion], data[inclusion]
 
-class Naive(WofsExist):
+class WofsFuse(WofsExist):
+    def prefilter(self, time, data):
+        # convert times to (local) dates
+        if self.time is not None:
+            self.time = self.time.astype('datetime64[D]')
+        time = (time + np.timedelta64(10, 'h')).astype('datetime64[D]')
+
+        # fuser distinguishes obscuration from nodata
+        def fuser(parts):
+            A = parts[0]
+            for B in parts.data[1:]:
+                noA = (A.data & 1).astype(np.bool)
+                noB = (B & 1).astype(np.bool)
+                overlap = ~(noA | noB)
+                A.data[noA] = B[noA] # try to fill gaps
+                A.data[overlap] |= B[overlap] # merge flags conservatively
+            return A
+
+        # merge same-day observations
+        x = xarray.DataArray(data)
+        x[x.dims[0]] = time
+        new = x.groupby(x.dims[0]).apply(fuser).data
+        time = np.unique(time)
+
+        # may simplify bitfield after fusing
+        return super().prefilter(time, new)
+
+class Naive(WofsFuse):
     """Summation provides only a loose lower bound."""
     def compute(self, time, data):
         estimate = data.sum(axis=1).filled(0)
         return np.vstack([estimate]*3)
 
-class Broken(WofsExist):
+class Broken(WofsFuse):
     """Masked spatial averaging mispredicts when one class is obscured"""
     def compute(self, time, data):
         estimate = data.shape[1] * data.mean(axis=1).filled(np.nan)
         return np.vstack([estimate]*3)
 
-class Conservative(WofsExist):
+class Conservative(WofsFuse):
     """Least assumptions"""
     def compute(self, time, data):
         lower = data.sum(axis=1).filled(0)
@@ -155,8 +272,16 @@ class Conservative(WofsExist):
         estimate = 0.5 * (lower + upper)
         return np.vstack([lower, estimate, upper])
 
-class Bracket(WofsMask):
+# TODO:
+#   Need to group by date. Then, foliate should be able to make work.
+#   Note, will require fuser.
+#   Might be easier if I manually upgrade pandas..
+#   Or... just convert to datetime.date objects?? (or cast to datetime64['D']?)
+
+class Bracket(WofsFuse):
     def compute(self, time, obs):
+        #obs = self.foliate(time, obs)
+
         data, mask = obs.data, obs.mask
         clear = ~mask
         epochs = len(time)
@@ -194,6 +319,6 @@ class Bracket(WofsMask):
 
         return np.vstack([lower, estimate, upper])
 
-#class TelegraphProcess(WofsMask):
+#class TelegraphProcess(WofsFuse):
 #    pass
 
