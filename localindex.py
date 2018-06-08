@@ -11,6 +11,11 @@ Also todo for sqlite3 conn:
     .enable_load_extension(True)
     .load_extension("mod_spatialite")
 
+Limitation: assumes product is not "stacked". Stacking multiple dates into
+the same file would alter the strategy for accessing them.
+
+TODO: spatialite rather than working on (and assuming) whole tiles.
+
 """
 import string
 import psycopg2
@@ -45,8 +50,6 @@ def get(x, y):
     c.execute(sql)
     return c.fetchall()
 
-# TODO: get implementation of local index working...
-
 def harvest():
     global results
 
@@ -80,11 +83,47 @@ def populate(filepath='local.db'):
     c.executemany("insert into datasets values(?,?,?, ?,?,?)", batch)
     conn.commit()
 
+def full():
+    """
+    Harvest everything.
 
+    Takes about 9 minutes (2min CPU + 7min DB) for 2.7 million tiles (wofls).
 
+    Ideally could build local indexes, but query performance may already suffice.
+    """
+    import sqlite3
+    import sqlalchemy
+    import pandas
 
+    slow = sqlalchemy.create_engine('postgres://agdcstaging-db/wofstest',
+                                    execution_options={'stream_results':True})
+    fast = sqlite3.connect("cache.db")
+    #      or sqlalchemy.create_engine('sqlite:///cache.db')
 
+    fast.execute("drop table if exists wofs_albers") # fresh
 
+    for chunk in pandas.read_sql(sqlalchemy.text(sql_harvest), slow, chunksize=1000):
+        chunk['id'] = chunk.id.astype(str) # uuid unsupported by sqlite
+        chunk.to_sql(name='wofs_albers',
+                     con=fast,
+                     if_exists='append', # concatenate chunks
+                     index=False) # do not explicitly store a row number
+
+    fast.commit() # probably not necessary?
+    fast.close() # appropriate for connection not engine
+
+def get2(x, y):
+    with sqlite3.connect("cache.db") as c:
+        results = c.execute("""select date(time, '+10 hours') as date,
+                                   group_concat(filename)
+                                from wofs_albers
+                                where x=? and y=? and gqa<1
+                                group by date
+                                order by date""", (x,y))
+        return [(datetime.date(*map(int,t.split('-'))), f.split(','))
+                for t,f in results.fetchall()]
+
+# takes about 7 minutes to complete:
 sql_harvest = """
 
 with recursive lineage(child, ancestor) as (
