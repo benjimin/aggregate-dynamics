@@ -23,46 +23,17 @@ import logging
 import sqlite3
 import pickle
 import datetime
+import sqlalchemy
+import pandas
 
 def cache(x, y):
-    return old_version(x, y)
-    #return new_version(x, y)
-
-def old_version(x, y):
-    x = int(x)
-    y = int(y)
-
-    filename = 'cache_%i_%i.pkl' % (x, y)
-
-    try:
-        with open(filename, 'rb') as f:
-            results = pickle.load(f)
-        logging.info('Using cache ' + filename)
-    except FileNotFoundError:
-        logging.info('Re-caching ' + filename)
-        results = harvest_one_cell(x, y)
-        with open(filename, 'wb') as f:
-            pickle.dump(results, f)
-    return results
-
-def harvest_one_cell(x, y):
-    # find list of potential datasets (either from filesystem or database)
-    # apply filtering on GQA metadata
-    # group as appropriate (aiming to fuse down to one layer per day)
-    #TODO: Set up local cache sqlite3/spatialite, transferring n rows at a time..
-    c = psycopg2.connect(host='agdcstaging-db', database='wofstest').cursor()
-    sql = string.Template(sql_one_cell).substitute(x=x, y=y, product='wofs_albers')
-    c.execute(sql)
-    return c.fetchall()
-
-def new_version(x, y):
     filename = 'cache.db'
     try:
-        return get2(x, y)
+        return get(x, y)
     except sqlite3.OperationalError:
         logging.info('Re-caching ' + filename)
-        #populate_all_cells(filename)
-        return get2(x, y)
+        harvest_all_cells(filename)
+        return get(x, y)
 
 
 def harvest_all_cells(cache_location):
@@ -75,11 +46,8 @@ def harvest_all_cells(cache_location):
 
     TODO: Generalise to other ODC products (not just wofs_albers)
     """
-    import sqlite3
-    import sqlalchemy
-    import pandas
 
-    slow = sqlalchemy.create_engine('postgres://agdcstaging-db/wofstest',
+    slow = sqlalchemy.create_engine('postgres://agdc-db/datacube',
                                     execution_options={'stream_results':True})
     fast = sqlite3.connect(cache_location)
     #      or sqlalchemy.create_engine('sqlite:///cache.db')
@@ -96,7 +64,7 @@ def harvest_all_cells(cache_location):
     fast.commit() # probably not necessary?
     fast.close() # appropriate for connection not engine
 
-def get2(x, y):
+def get(x, y):
     """
     Retrieve cached results for any cell.
 
@@ -147,53 +115,4 @@ from (
     join agdc.dataset_location path on hist.id = path.dataset_ref
 ) as j
 join agdc.dataset d on d.id = j.id
-"""
-
-
-sql_one_cell = """
-
-with recursive lineage(child, ancestor) as (
-        select seed.id, src.source_dataset_ref
-        from seed join agdc.dataset_source src
-        on seed.id = src.dataset_ref
-    union
-        select lineage.child, src.source_dataset_ref
-        from lineage join agdc.dataset_source src
-        on lineage.ancestor = src.dataset_ref
-),
-seed(id) as (
-    select id from agdc.dataset
-    where
-        dataset_type_ref in
-            (select id from agdc.dataset_type where name like '$product')
-        and archived is null
-        and metadata->'grid_spatial'->'projection'->'geo_ref_points'->'ll'
-            = jsonb_build_object('x', $x * 100000, 'y', $y * 100000)
-),
-filter(id) as (
-    select lineage.child
-    from lineage join agdc.dataset d
-    on lineage.ancestor = d.id
-    where d.dataset_type_ref in
-        (select id from agdc.dataset_type where name like '%level1%scene')
-    group by lineage.child
-    having
-        max((d.metadata->'gqa'->'residual'->'iterative_mean'->>'xy')::numeric)
-        < 1
-),
-locate(id, path) as (
-    select distinct on (filter.id)
-        filter.id, path.uri_body
-    from filter join agdc.dataset_location path
-    on filter.id = path.dataset_ref
-    where path.archived is null
-)
-select
-    (((d.metadata->'extent'->>'center_dt')::timestamp at time zone 'UTC')
-        at time zone 'AEST')::date as date,
-    array_agg(locate.path)
-from locate join agdc.dataset d on d.id=locate.id
-group by date
-order by date
-
 """
