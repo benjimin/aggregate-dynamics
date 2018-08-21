@@ -193,8 +193,8 @@ def grid_workflow(obsdata, obsdates):
     # output chunks are a different shape
     agg = dask.array.map_blocks(aggregate_chunk, x, dtype=np.float32,
                                 chunks=(epochs,1,1,3), new_axis=3)
-    with dask.set_options(pool=multiprocessing.pool.ThreadPool(8)):
-        agg.to_hdf5('output.h5', '/data')
+    with dask.config.set(pool=multiprocessing.pool.ThreadPool(8)):
+        agg.to_hdf5('output.h5.delme', '/data')
 
     return agg
 
@@ -211,7 +211,10 @@ def workflow(tx, ty, quadrant=0):
 
     obsdates, obsdata = cell_input(tx, ty, window)
 
+    print("Collected input..")
+
     def aggregate_chunk(chunk):
+        print("<chunk>")
         lower, expect, upper = aggregate.aggregate_wofs(chunk, obsdates)
         return np.vstack([lower, expect, upper]).T[:,None,None,:]
     epochs = len(aggregate.defaultdates)
@@ -221,6 +224,6 @@ def workflow(tx, ty, quadrant=0):
     # output chunks are a different shape
     agg = dask.array.map_blocks(aggregate_chunk, x, dtype=np.float32,
                                 chunks=(epochs,1,1,3), new_axis=3)
-    with dask.set_options(pool=multiprocessing.pool.ThreadPool(8)):
-        agg.store(output, lock=False)
-
+    with dask.config.set(pool=multiprocessing.pool.ThreadPool(4)):
+        #agg.store(output, lock=False)
+        agg.to_hdf5('output.h5.delme', '/data')
