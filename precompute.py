@@ -42,11 +42,22 @@ Thus, want of order 40gb memory.
 
 Or, only read a quarter of raw cell (which has 200x200 chunks).
 
+------
+
+Usage:
+
+    #x = cell_input(15, -40, window=((0,2000),(0,2000)), limit=20)
+    %time t,x = cell_input(15, -40, window=((0,2000),(0,2000)))
+    %time grid_workflow(x, t)
+
+    or
+
+    %time workflow(15, -40, quadrant=0)
+
 """
 import rasterio
 import numpy as np
 import logging
-import localindex
 import dask.array
 import multiprocessing
 import functools
@@ -54,16 +65,24 @@ import operator
 import mmap
 import zarr
 
-window = ((0,2000),(0,2000))
-t0 = np.datetime64('1986-01-01', 'D')
-tf = np.datetime64('2020-01-01', 'D')
+import localindex
+import aggregate
 
-day = np.timedelta64(1, 'D')
-epochs = int((tf - t0) / day) + 1 # inclusive count of distinct dates
-newdates = t0 + day * np.arange(epochs)
-assert epochs == len(newdates)
+window = ((0,2000),(0,2000))
+
+windows = {0: ((0,2000),(0,2000)), # TODO: check handling of boundary pixels..
+           1: ((0,2000),(2000,4000)),
+           2: ((2000,4000),(0,2000)),
+           3: ((2000,4000),(2000,4000))}
 
 def sharedarray(shape, dtype):
+    """
+    Sharing numpy array between processes
+
+    Usage: assign returned ndarray to a global before forking.
+
+    Note explicit passing fails, presumably due to argument serialisation.
+    """
     size = functools.reduce(operator.mul, shape) * np.dtype(dtype).itemsize
     class releasor(mmap.mmap):
         def __del__(self):
@@ -72,6 +91,7 @@ def sharedarray(shape, dtype):
     return np.frombuffer(buffer, dtype=dtype).reshape(shape)
 
 def load(row, filenames):
+    """IO subtask: load selected slice with fusion of source data"""
     global obsdata
     global rasterwindow
     dest = obsdata[row]
@@ -86,7 +106,9 @@ def load(row, filenames):
             dest[overlap] |= this[overlap]
 
 def cell_input(x, y, window=None, limit=None): # e.g. window = (0, 2000), (0, 2000)
+    """Load dense stack of input data, using parallel IO"""
     global obsdata
+    global obsdates
     global rasterwindow
 
     rasterwindow = window
@@ -107,85 +129,98 @@ def cell_input(x, y, window=None, limit=None): # e.g. window = (0, 2000), (0, 20
     logging.info(str(obs))
 
     obsdata = sharedarray([obs]+rastershape, np.uint8)
+    obsdates = dates
 
-    with multiprocessing.Pool(8) as pool:
+    with multiprocessing.Pool(16) as pool:
         pool.starmap(load, enumerate(filenames))
 
     return dates, obsdata
 
-def grid_workflow():
-    global everything
+class storage:
+    """
+    dask.array.store interface
+
+    We are using 25m x 25m resolution data, and aggregating at 100x100 pixels,
+    i.e. each output array element spans 2.5km along either axis.
+
+    In Albers projection, the Australian region spans 4200km x 4000km,
+    extending east and north from the corner -2000000mE -5000000mN.
+
+    The datacube system uses 100km x 100km (4000^2 pixel) tiles, indexed by
+    the south west corner coordinates in Albers (divided by 100000m).
+
+    So the origin tile is (-20,-50), and the output increments by 40 for
+    each tile index increment, with the total output dimensions 1680x1600.
+
+    Chunks will have shape (~12k, 1, 1, 3): temporal, 2D spatial, which curve.
+    """
+    origin_tx = -20
+    origin_ty = -50
+    def __init__(self, tx, ty, window=((0,),(0,))):
+        self.offset_x = int( (tx - self.origin_tx) * 40 + window[0][0] / 100 )
+        self.offset_y = int( (ty - self.origin_ty) * 40 + window[1][0] / 100 )
+        epochs = len(aggregate.defaultdates)
+        self.array = zarr.open('data.zarr', mode='w',
+                               shape=(epochs, 1680, 1600, 3),
+                               chunks=(epochs, 1, 1, 3))
+    def __setitem__(self, key, value):
+        #print(key)
+        assert len(key) == 4
+        def increment(s, offset):
+            assert isinstance(s, slice) # otherwise, return s + offset ?
+            assert isinstance(offset, int)
+            return slice(s.start + offset, s.stop + offset, s.step)
+        sx = increment(key[1], self.offset_x)
+        sy = increment(key[2], self.offset_y)
+        key2 = key[0], sx, sy, key[3]
+        #print(key2)
+        self.array[key2] = value
+
+def grid_workflow(obsdata, obsdates):
+    """
+    Orchestrate aggregation (with multithreading) and store result.
+
+    This accesses n_obs x 100 x 100 chunks of the input,
+    to generate n_days x 1 x 1 chunks of output.
+    """
+    def aggregate_chunk(chunk):
+        lower, expect, upper = aggregate.aggregate_wofs(chunk, obsdates)
+        return np.vstack([lower, expect, upper]).T[:,None,None,:]
+    epochs = len(aggregate.defaultdates)
+
     # read input in full-temporal depth 100x100 pillars
-    x = dask.array.from_array(everything, chunks=(-1, 100, 100))
+    x = dask.array.from_array(obsdata, chunks=(-1, 100, 100))
     # output chunks are a different shape
     agg = dask.array.map_blocks(aggregate_chunk, x, dtype=np.float32,
                                 chunks=(epochs,1,1,3), new_axis=3)
-    with dask.set_options(pool=multiprocessing.pool.ThreadPool(2)):
+    with dask.set_options(pool=multiprocessing.pool.ThreadPool(8)):
         agg.to_hdf5('output.h5', '/data')
 
-def aggregate_chunk(chunk):
-    global dates
+    return agg
 
-    assert epochs == len(newdates)
+def workflow(tx, ty, quadrant=0):
+    """
+    Orchestrate aggregation (with multithreading) and store result.
 
-    def wofs_prep(chunk): # map wofs input to masked boolean
-        chunk &= ~np.uint8(4) # remove ocean masking
+    This accesses n_obs x 100 x 100 chunks of the input,
+    to generate n_days x 1 x 1 chunks of output.
+    """
+    window = windows[quadrant]
 
-        wet = chunk == 128
-        dry = chunk == 0
-        clear = wet | dry
+    output = storage(tx, ty, window)
 
-        return np.ma.array(wet, mask=~clear)
+    obsdates, obsdata = cell_input(tx, ty, window)
 
-    def foliate(chunk, chunkdates):
-        indices = ((chunkdates - t0) /  day).round().astype(int)
+    def aggregate_chunk(chunk):
+        lower, expect, upper = aggregate.aggregate_wofs(chunk, obsdates)
+        return np.vstack([lower, expect, upper]).T[:,None,None,:]
+    epochs = len(aggregate.defaultdates)
 
-        foliage = np.zeros((epochs,) + chunk.shape[1:], dtype=np.bool)
-        foliage = np.ma.array(data=foliage, mask=True)
+    # read input in full-temporal depth 100x100 pillars
+    x = dask.array.from_array(obsdata, chunks=(-1, 100, 100))
+    # output chunks are a different shape
+    agg = dask.array.map_blocks(aggregate_chunk, x, dtype=np.float32,
+                                chunks=(epochs,1,1,3), new_axis=3)
+    with dask.set_options(pool=multiprocessing.pool.ThreadPool(8)):
+        agg.store(output, lock=False)
 
-        foliage[indices] = chunk
-        return foliage
-
-    def interpolate(maskedchunk):
-        data = maskedchunk.data
-        mask = maskedchunk.mask
-        clear = ~mask
-
-        past = clear.cumsum(axis=0, dtype=np.bool)
-        future = clear[::-1,...].cumsum(axis=0, dtype=np.bool)[::-1,...]
-        unbound = past & future
-
-        # constant-value extrapolation
-        forward = data.copy()
-        reverse = data.copy()
-        for i in range(1, epochs):
-            gaps = mask[i]
-            forward[i][gaps] = forward[i-1][gaps]
-        for i in range(epochs-1)[::-1]:
-            gaps = mask[i]
-            reverse[i][gaps] = reverse[i+1][gaps]
-
-        upper = forward | reverse | unbound # might be wet
-        lower = forward & reverse & ~unbound # must be wet
-        return upper, lower
-
-    def summarise(upper, lower):
-        upper = upper.sum(axis=(1,2))
-        lower = lower.sum(axis=(1,2))
-
-        estimate = 0.5 * (upper + lower)
-
-        return np.vstack([lower, estimate, upper]).astype(np.float32)
-
-    obs = wofs_prep(chunk)
-
-    foliage = foliate(obs, dates)
-
-    a, b = interpolate(foliage)
-
-    return summarise(a, b).T[:,None,None,:] # -> shape (t,1,1,3)
-
-#x = cell_input(15, -40, window=((0,2000),(0,2000)), limit=20)
-
-# %time x = cell_input(15, -40, window=((0,2000),(0,2000)))
-# %time grid_workflow()

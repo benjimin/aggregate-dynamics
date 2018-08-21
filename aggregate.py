@@ -68,7 +68,7 @@ def constant_interpolate(maskedchunk):
 
     return forward, reverse
 
-def estimate(maskedchunk, conservative=True):
+def estimate(maskedchunk, conservative=False):
     """Uncertainty (for each pixel) according to bracketing obsevations.
 
     Where unbracketed, assert both states possible.
@@ -108,9 +108,9 @@ def estimate(maskedchunk, conservative=True):
 
 def aggregate(*args):
     """Coarsen spatially"""
-    return tuple(x.sum(axis=(1,2)) for x in args)
+    return tuple(x.sum(axis=(1,2), dtype=np.float32) for x in args)
 
-def aggregate_wofs(obsarray, obsdates, newdates=defaultdates, conservative=True):
+def aggregate_wofs(obsarray, obsdates, newdates=defaultdates, conservative=False):
     """Take input bitfield, orchestrate aggregation"""
 
     return aggregate(*estimate(foliate(prefilter_wofs(obsarray),

@@ -22,8 +22,13 @@ import psycopg2
 import logging
 import sqlite3
 import pickle
+import datetime
 
 def cache(x, y):
+    return old_version(x, y)
+    #return new_version(x, y)
+
+def old_version(x, y):
     x = int(x)
     y = int(y)
 
@@ -35,12 +40,12 @@ def cache(x, y):
         logging.info('Using cache ' + filename)
     except FileNotFoundError:
         logging.info('Re-caching ' + filename)
-        results = get(x, y)
+        results = harvest_one_cell(x, y)
         with open(filename, 'wb') as f:
             pickle.dump(results, f)
     return results
 
-def get(x, y):
+def harvest_one_cell(x, y):
     # find list of potential datasets (either from filesystem or database)
     # apply filtering on GQA metadata
     # group as appropriate (aiming to fuse down to one layer per day)
@@ -50,46 +55,25 @@ def get(x, y):
     c.execute(sql)
     return c.fetchall()
 
-def harvest():
-    global results
+def new_version(x, y):
+    filename = 'cache.db'
+    try:
+        return get2(x, y)
+    except sqlite3.OperationalError:
+        logging.info('Re-caching ' + filename)
+        #populate_all_cells(filename)
+        return get2(x, y)
 
-    conn = psycopg2.connect(host='agdcstaging-db', database='wofstest')
-    c = conn.cursor(name="ServerSide") # name != none => not client side cursor
 
-    import time
-    t = time.perf_counter()
-    c.execute(sql_harvest);
-    logging.info("Query execution: %f seconds" % (time.perf_counter() - t))
-
-    while True:
-        results = c.fetchmany(1000)
-        if results:
-            yield results
-        else:
-            break
-
-def populate(filepath='local.db'):
-    global c
-    global conn
-
-    conn = sqlite3.connect('local.db')
-
-    c = conn.cursor()
-    c.execute('drop table if exists datasets')
-    c.execute(
-        """create table if not exists datasets(
-        id text, gqa real, path text, time timestamp, x integer, y interger)
-        """)
-    c.executemany("insert into datasets values(?,?,?, ?,?,?)", batch)
-    conn.commit()
-
-def full():
+def harvest_all_cells(cache_location):
     """
     Harvest everything.
 
     Takes about 9 minutes (2min CPU + 7min DB) for 2.7 million tiles (wofls).
 
     Ideally could build local indexes, but query performance may already suffice.
+
+    TODO: Generalise to other ODC products (not just wofs_albers)
     """
     import sqlite3
     import sqlalchemy
@@ -97,7 +81,7 @@ def full():
 
     slow = sqlalchemy.create_engine('postgres://agdcstaging-db/wofstest',
                                     execution_options={'stream_results':True})
-    fast = sqlite3.connect("cache.db")
+    fast = sqlite3.connect(cache_location)
     #      or sqlalchemy.create_engine('sqlite:///cache.db')
 
     fast.execute("drop table if exists wofs_albers") # fresh
@@ -113,6 +97,12 @@ def full():
     fast.close() # appropriate for connection not engine
 
 def get2(x, y):
+    """
+    Retrieve cached results for any cell.
+
+    Currently takes ~1 second per cell.
+    TODO: could probably speed up by building indexes during harvest
+    """
     with sqlite3.connect("cache.db") as c:
         results = c.execute("""select date(time, '+10 hours') as date,
                                    group_concat(filename)
@@ -120,6 +110,7 @@ def get2(x, y):
                                 where x=? and y=? and gqa<1
                                 group by date
                                 order by date""", (x,y))
+        # parse date-string and comma-separated-list
         return [(datetime.date(*map(int,t.split('-'))), f.split(','))
                 for t,f in results.fetchall()]
 

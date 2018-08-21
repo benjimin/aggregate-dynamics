@@ -106,5 +106,3 @@ class grid:
 
         self.data = summary * (25**2) / (100**2)
 
-
-
