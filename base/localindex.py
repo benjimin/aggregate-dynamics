@@ -26,19 +26,18 @@ import datetime
 import sqlalchemy
 import pandas
 
+cache_location = 'cache.db'
+
 def cache(x, y):
-    filename = 'cache.db'
     try:
         return get(x, y)
     except sqlite3.OperationalError:
-        logging.info('Re-caching ' + filename)
-        harvest_all_cells(filename)
+        harvest()
         return get(x, y)
 
-
-def harvest_all_cells(cache_location):
+def harvest():
     """
-    Harvest everything.
+    Harvest everything (all cells).
 
     Takes about 9 minutes (2min CPU + 7min DB) for 2.7 million tiles (wofls).
 
@@ -46,6 +45,7 @@ def harvest_all_cells(cache_location):
 
     TODO: Generalise to other ODC products (not just wofs_albers)
     """
+    logging.info('Re-caching ' + cache_location)
 
     slow = sqlalchemy.create_engine('postgres://agdc-db/datacube',
                                     execution_options={'stream_results':True})
@@ -71,7 +71,7 @@ def get(x, y):
     Currently takes ~1 second per cell.
     TODO: could probably speed up by building indexes during harvest
     """
-    with sqlite3.connect("cache.db") as c:
+    with sqlite3.connect(cache_location) as c:
         results = c.execute("""select date(time, '+10 hours') as date,
                                    group_concat(filename)
                                 from wofs_albers
@@ -82,7 +82,7 @@ def get(x, y):
         return [(datetime.date(*map(int,t.split('-'))), f.split(','))
                 for t,f in results.fetchall()]
 
-# takes about 7 minutes to complete:
+# takes about 7 minutes to complete on staging-db (however took 1hr23min on prod)
 sql_harvest = """
 
 with recursive lineage(child, ancestor) as (
@@ -116,3 +116,8 @@ from (
 ) as j
 join agdc.dataset d on d.id = j.id
 """
+
+if __name__ == '__main__':
+    import os.path
+    if not os.path.exists(cache_location):
+        harvest()
