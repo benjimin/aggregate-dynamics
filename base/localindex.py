@@ -29,6 +29,7 @@ import pandas
 cache_location = 'cache.db'
 
 def cache(x, y):
+    return get(x, y)
     try:
         return get(x, y)
     except sqlite3.OperationalError:
