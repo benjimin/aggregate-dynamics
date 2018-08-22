@@ -49,7 +49,7 @@ def load(row, filenames):
     """IO subtask: load selected slice with fusion of source data"""
     global obsdata
     global rasterwindow
-    dest = obsdata[row]
+    dest = np.empty(obsdata.shape[1:3], dtype=np.int16) #dest = obsdata[row]
     for i, name in enumerate(filenames):
         assert name.endswith('.nc')
         with rasterio.open('NetCDF:' + name + ':water') as f:
@@ -59,6 +59,8 @@ def load(row, filenames):
             overlap = ~(hole | (this & 1).astype(np.bool))
             dest[hole] = this[hole]
             dest[overlap] |= this[overlap]
+    obsdata[row] = dest.astype(np.uint8)
+    # limitation of NCI NetCDF-CF: 8bit field stored in 16bits for compliance
 
 def cell_input(x, y, window=None, limit=None): # e.g. window = (0, 2000), (0, 2000)
     """Load dense stack of input data, using parallel IO"""
