@@ -17,13 +17,10 @@ the same file would alter the strategy for accessing them.
 TODO: spatialite rather than working on (and assuming) whole tiles.
 
 """
-import string
-import psycopg2
 import logging
 import sqlite3
-import pickle
 import datetime
-import sqlalchemy
+import sqlalchemy #import psycopg2
 import pandas
 
 cache_location = 'cache.db'
@@ -63,6 +60,9 @@ def harvest():
                      index=False) # do not explicitly store a row number
 
     fast.commit() # probably not necessary?
+    fast.execute("create index cellindex on wofs_albers (x,y)") # 7 seconds
+    #fast.execute("create index sorted on wofs_albers (x,y,date(time, '+10 hours'))")
+    # Issue: sqlite probably can't use index for date function until v3.20.0
     fast.close() # appropriate for connection not engine
 
 def get(x, y):

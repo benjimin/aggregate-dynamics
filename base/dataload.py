@@ -22,7 +22,7 @@ import functools
 import operator
 import mmap
 
-import localindex
+from . import localindex
 
 windows = {0: ((0,2000),(0,2000)), # TODO: check handling of boundary pixels..
            1: ((0,2000),(2000,4000)),

@@ -55,86 +55,14 @@ Usage:
     %time workflow(15, -40, quadrant=0)
 
 """
-import rasterio
 import numpy as np
 import logging
 import dask.array
 import multiprocessing
-import functools
-import operator
-import mmap
 import zarr
 
-import localindex
-import aggregate
-
-window = ((0,2000),(0,2000))
-
-windows = {0: ((0,2000),(0,2000)), # TODO: check handling of boundary pixels..
-           1: ((0,2000),(2000,4000)),
-           2: ((2000,4000),(0,2000)),
-           3: ((2000,4000),(2000,4000))}
-
-def sharedarray(shape, dtype):
-    """
-    Sharing numpy array between processes
-
-    Usage: assign returned ndarray to a global before forking.
-
-    Note explicit passing fails, presumably due to argument serialisation.
-    """
-    size = functools.reduce(operator.mul, shape) * np.dtype(dtype).itemsize
-    class releasor(mmap.mmap):
-        def __del__(self):
-            self.close()
-    buffer = releasor(-1, size)
-    return np.frombuffer(buffer, dtype=dtype).reshape(shape)
-
-def load(row, filenames):
-    """IO subtask: load selected slice with fusion of source data"""
-    global obsdata
-    global rasterwindow
-    dest = obsdata[row]
-    for i, name in enumerate(filenames):
-        assert name.endswith('.nc')
-        with rasterio.open('NetCDF:' + name + ':water') as f:
-            this = f.read(1, window=rasterwindow, out=(None if i else dest))
-        if i: # fuser
-            hole = (dest & 1).astype(np.bool)
-            overlap = ~(hole | (this & 1).astype(np.bool))
-            dest[hole] = this[hole]
-            dest[overlap] |= this[overlap]
-
-def cell_input(x, y, window=None, limit=None): # e.g. window = (0, 2000), (0, 2000)
-    """Load dense stack of input data, using parallel IO"""
-    global obsdata
-    global obsdates
-    global rasterwindow
-
-    rasterwindow = window
-
-    results = localindex.cache(x, y)[:limit]
-    dates, filenames = zip(*results)
-
-    dates = np.asarray(dates, dtype=np.datetime64)
-
-    rastershape = [4000, 4000] if window is None else [b-a for a,b in window]
-
-    # declare enormous array
-
-    pixels = (lambda x,y : x*y)(*rastershape)
-    obs = len(results)
-    size = pixels * obs
-
-    logging.info(str(obs))
-
-    obsdata = sharedarray([obs]+rastershape, np.uint8)
-    obsdates = dates
-
-    with multiprocessing.Pool(16) as pool:
-        pool.starmap(load, enumerate(filenames))
-
-    return dates, obsdata
+from . import aggregate
+from . import dataload
 
 class storage:
     """
@@ -176,28 +104,6 @@ class storage:
         #print(key2)
         self.array[key2] = value
 
-def grid_workflow(obsdata, obsdates):
-    """
-    Orchestrate aggregation (with multithreading) and store result.
-
-    This accesses n_obs x 100 x 100 chunks of the input,
-    to generate n_days x 1 x 1 chunks of output.
-    """
-    def aggregate_chunk(chunk):
-        lower, expect, upper = aggregate.aggregate_wofs(chunk, obsdates)
-        return np.vstack([lower, expect, upper]).T[:,None,None,:]
-    epochs = len(aggregate.defaultdates)
-
-    # read input in full-temporal depth 100x100 pillars
-    x = dask.array.from_array(obsdata, chunks=(-1, 100, 100))
-    # output chunks are a different shape
-    agg = dask.array.map_blocks(aggregate_chunk, x, dtype=np.float32,
-                                chunks=(epochs,1,1,3), new_axis=3)
-    with dask.config.set(pool=multiprocessing.pool.ThreadPool(8)):
-        agg.to_hdf5('output.h5.delme', '/data')
-
-    return agg
-
 def workflow(tx, ty, quadrant=0):
     """
     Orchestrate aggregation (with multithreading) and store result.
@@ -205,11 +111,11 @@ def workflow(tx, ty, quadrant=0):
     This accesses n_obs x 100 x 100 chunks of the input,
     to generate n_days x 1 x 1 chunks of output.
     """
-    window = windows[quadrant]
+    window = dataload.windows[quadrant]
 
     output = storage(tx, ty, window)
 
-    obsdates, obsdata = cell_input(tx, ty, window)
+    obsdates, obsdata = dataload.cell_input(tx, ty, window)
 
     print("Collected input..")
 
@@ -224,6 +130,9 @@ def workflow(tx, ty, quadrant=0):
     # output chunks are a different shape
     agg = dask.array.map_blocks(aggregate_chunk, x, dtype=np.float32,
                                 chunks=(epochs,1,1,3), new_axis=3)
-    with dask.config.set(pool=multiprocessing.pool.ThreadPool(4)):
+    with dask.config.set(pool=multiprocessing.pool.ThreadPool(1)):
         #agg.store(output, lock=False)
-        agg.to_hdf5('output.h5.delme', '/data')
+        agg.to_hdf5('output.h5', '/data')
+
+if __name__ == '__main__':
+    workflow(15,-40)
