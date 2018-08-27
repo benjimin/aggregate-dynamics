@@ -1,0 +1,11 @@
+#!/bin/bash
+#PBS -P u46
+#PBS -q express
+#PBS -l walltime=1:00:00,mem=32GB,ncpus=8,wd
+
+module use /g/data/v10/public/modules/modulefiles
+module load dea
+
+pwd -P
+
+/usr/bin/time python -m base.precompute

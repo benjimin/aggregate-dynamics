@@ -113,7 +113,7 @@ def workflow(tx, ty, quadrant=0):
     """
     window = dataload.windows[quadrant]
 
-    output = storage(tx, ty, window)
+    #output = storage(tx, ty, window)
 
     obsdates, obsdata = dataload.cell_input(tx, ty, window)
 
@@ -130,7 +130,7 @@ def workflow(tx, ty, quadrant=0):
     # output chunks are a different shape
     agg = dask.array.map_blocks(aggregate_chunk, x, dtype=np.float32,
                                 chunks=(epochs,1,1,3), new_axis=3)
-    with dask.config.set(pool=multiprocessing.pool.ThreadPool(1)):
+    with dask.config.set(pool=multiprocessing.pool.ThreadPool(8)):
         #agg.store(output, lock=False)
         agg.to_hdf5('output.h5', '/data')
 
