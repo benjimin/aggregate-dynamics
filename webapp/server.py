@@ -3,8 +3,9 @@ import shapely.geometry
 import numpy as np
 import math
 import rasterio.features
-import h5py
 import datetime
+#import h5py
+import zarr
 
 app = flask.Flask(__name__)
 
@@ -39,9 +40,13 @@ newdates = t0 + day * np.arange(epochs)
 
 
 class grid:
-    file = h5py.File('../output.h5', 'r')
+
+    file = zarr.open('../data.zarr', mode='r')#,
+                           #shape=(epochs, 1680, 1600, 3),
+                           #chunks=(epochs, 1, 1, 3))
 
     def __init__(self, geom, snap=True, res=2500):
+        """ Takes Shapely geometry, conceives coarse grid """
         x0,y0,x1,y1 = np.asarray(geom.bounds) / res
         x0,y0,x1,y1 = math.floor(x0), math.floor(y0), math.ceil(x1), math.ceil(y1)
 
@@ -59,9 +64,15 @@ class grid:
                                            all_touched=all_touched)
     def indices(self, array):
         j, i = array.nonzero()
-        i += self.x0 - (600)
-        j -= self.y1 - (-1560)
+
+        # Was subtracting 600,-1650 (i.e. 15,-39 * 100k/res)
+        # Shifte to tile index -20,-50
+
+        i += self.x0 - (-20 * 10**5 // 2500)
+        j += self.y1 - (-49 * 10**5 // 2500)
+        print(list(zip(i,j)))
         return zip(i, j)
+
 
     def vectorise(self, array):
         shapes = rasterio.features.shapes(array, mask=array,
@@ -95,7 +106,7 @@ class grid:
             self.geom = shapely.geometry.mapping(clipped)
             #polygons += self.vectorise(partial)
 
-        ds = self.file['data']
+        ds = self.file
 
         # TODO: handle if array or partial are entirely empty
         summary = sum(ds[:,y,x,:] for (x,y) in self.indices(array))
