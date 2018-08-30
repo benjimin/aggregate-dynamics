@@ -41,7 +41,7 @@ newdates = t0 + day * np.arange(epochs)
 
 class grid:
 
-    file = zarr.open('../data.zarr', mode='r')#,
+    file = zarr.open('data.zarr', mode='r')#,
                            #shape=(epochs, 1680, 1600, 3),
                            #chunks=(epochs, 1, 1, 3))
 

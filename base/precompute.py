@@ -82,7 +82,6 @@ def workflow(tx, ty, quadrant=0):
     print("Collected input..")
 
     def aggregate_chunk(chunk):
-        print("<chunk>")
         lower, expect, upper = aggregate.aggregate_wofs(chunk, obsdates)
         return np.vstack([lower, expect, upper]).T[:,None,None,:]
     epochs = len(aggregate.defaultdates)
@@ -97,4 +96,5 @@ def workflow(tx, ty, quadrant=0):
         #agg.to_hdf5('output.h5', '/data')
 
 if __name__ == '__main__':
-    workflow(15,-40)
+    #workflow(15,-40)
+    workflow(15,-40, window=dataload.windows[1])

@@ -25,8 +25,8 @@ import mmap
 from . import localindex
 
 windows = {0: ((0,2000),(0,2000)), # TODO: check handling of boundary pixels..
-           1: ((0,2000),(2000,4000)),
-           2: ((2000,4000),(0,2000)),
+           1: ((2000,4000),(0,2000)),
+           2: ((0,2000),(2000,4000)),
            3: ((2000,4000),(2000,4000))}
 
 def sharedarray(shape, dtype):

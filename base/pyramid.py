@@ -29,7 +29,7 @@ import numpy as np
 
 from . import aggregate
 
-location = '../data.zarr'
+location = 'data.zarr'
 
 # in projection units (m)
 coordinate_bounds = -2000000,-1000000,2200000,-5000000
@@ -105,8 +105,6 @@ class storage:
         sy = increment(key[2], self.offset_y)
         key2 = key[0], sx, sy, key[3]
         self.array[key2] = value
-
-
 
 
 if __name__ == '__main__':
