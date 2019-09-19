@@ -83,6 +83,21 @@ def get(x, y):
         return [(datetime.date(*map(int,t.split('-'))), f.split(','))
                 for t,f in results.fetchall()]
 
+def get_time(x, y):
+    """
+    Find exact times of observation
+    """
+    with sqlite3.connect(cache_location) as c:
+        results = c.execute("""select date(time, '+10 hours') as date,
+                                   group_concat(time)
+                                from wofs_albers
+                                where x=? and y=? and gqa<1
+                                group by date
+                                order by date""", (x,y))
+        # parse date-string and comma-separated-list
+        return [(datetime.date(*map(int,t.split('-'))), f.split(','))
+                for t,f in results.fetchall()]
+
 # takes about 7 minutes to complete on staging-db (however took 1hr23min on prod)
 sql_harvest = """
 
