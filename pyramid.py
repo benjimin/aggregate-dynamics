@@ -100,6 +100,11 @@ print(raw)
 print(trivial(raw, 2))
 
 
+
+def shape(level):
+    mag = zoomfactor**level
+    return yres // mag, xres // mag
+
 size = 2 # let's use 2x2 tiles.
 zoomfactor = 2
 levels = int(math.log(min([xres, yres])/size, zoomfactor))
@@ -147,18 +152,34 @@ def depthfirst(tile=None):
         yield from depthfirst(t)
         yield t
 
-def maketasks():
-    for t in depthfirst():
+output = [np.zeros(shape(i)) for i in range(levels + 1)]
+
+#for i, t in enumerate(depthfirst()):
+#    output[t.level][t.window()] = i
+
+def condense(source, dest, zoom=Tile.zoom):
+    m, n = dest.shape
+    source = source.reshape(m, zoom, n, zoom)
+    np.mean(source, axis=(1, -1), out=dest)
+
+output[0] = raw
 
 for t in depthfirst():
-    print(t, t.parent)
+    if t.parent is not None:
+        dest = output[t.level + 1][t.parent_window()]
+        src = output[t.level][t.window()]
+        condense(src, dest)
+
+
+print(output[0])
+print(output[1])
+print(output[2])
+
 
 """
 
 
-def shape(level):
-    mag = zoomfactor**level
-    return yres // mag, xres // mag
+
 
 outputs = {i + 1: np.zeros(shape(i + 1)) for i in range(levels)}
 
