@@ -154,6 +154,20 @@ def depthfirst(tile=None):
 
 output = [np.zeros(shape(i)) for i in range(levels + 1)]
 
+class TileCache:
+    def __init__(self, a):
+        self.data = a
+    def __getitem__(self, key):
+        cols, rows = key
+        i = cols.start // Tile.size
+        j = rows.start // Tile.size
+        print(cols, rows)
+        res = self.data[key]
+        print(res.__array_interface__)
+        return res
+    def __repr__(self):
+        return str(self.data)
+
 #for i, t in enumerate(depthfirst()):
 #    output[t.level][t.window()] = i
 
@@ -162,7 +176,21 @@ def condense(source, dest, zoom=Tile.zoom):
     source = source.reshape(m, zoom, n, zoom)
     np.mean(source, axis=(1, -1), out=dest)
 
+
+    # issue: this still always "gets" from the cache,
+    # accessing the memoryview directly without signaling
+    # whether it is performing modifications vs reads.
+
+    # Probably just means, can't do in-place operations.
+
+    # Trouble is signaling a cache when it is safe to
+    # discard a finished tile.. Probably do need to have the sole reference
+    # be on the tile/task that is going to pass out of scope.
+
 output[0] = raw
+output[1] = TileCache(output[1])
+
+print('~'*10)
 
 for t in depthfirst():
     if t.parent is not None:
@@ -171,9 +199,11 @@ for t in depthfirst():
         condense(src, dest)
 
 
+
 print(output[0])
 print(output[1])
 print(output[2])
+
 
 
 """
