@@ -141,8 +141,9 @@ class Tile:
         return 'Tile' + str((self.level, self.y_offset, self.x_offset))
     def data(self):
         if self._data is None:
-            print('Allocate', self.level, self.y_offset, self.x_offset)
             self._data = np.empty((size, size))
+            if self.level == 0:
+                self._data = raw[self.window()]
         return self._data
     def dispatch(self):
         src = self.data()
@@ -153,13 +154,14 @@ class Tile:
             y = self.y_offset // self.zoom % self.size
             x = self.x_offset // self.zoom % self.size
             s = self.size // self.zoom
-            w = slice(y, y + s), (x, x + s)
+            w = slice(y, y + s), slice(x, x + s)
             dest = dest[w]
 
             src.reshape(s, self.zoom, s, self.zoom
                         ).mean(axis=(1, -1), out=dest)
 
-        print('Dispatch', self.level, self.y_offset, self.x_offset)
+        if self.level > 0:
+            output[self.level][self.window()] = self._data
 
         self._data = None
 
@@ -181,27 +183,6 @@ def depthfirst(tile=None):
 
 output = [np.zeros(shape(i)) for i in range(levels + 1)]
 
-class TileCache:
-    def __init__(self, a):
-        self.data = a
-    def __getitem__(self, key):
-        cols, rows = key
-        i = cols.start // Tile.size
-        j = rows.start // Tile.size
-        print(cols, rows)
-        res = self.data[key]
-        print(res.__array_interface__)
-        return res
-    def __repr__(self):
-        return str(self.data)
-
-#for i, t in enumerate(depthfirst()):
-#    output[t.level][t.window()] = i
-
-def condense(source, dest, zoom=Tile.zoom):
-    m, n = dest.shape
-    source = source.reshape(m, zoom, n, zoom)
-    np.mean(source, axis=(1, -1), out=dest)
 
 
     # issue: this still always "gets" from the cache,
@@ -215,15 +196,12 @@ def condense(source, dest, zoom=Tile.zoom):
     # be on the tile/task that is going to pass out of scope.
 
 output[0] = raw
-output[1] = TileCache(output[1])
 
 print('~'*10)
 
 for t in depthfirst():
-    if t.parent is not None:
-        dest = output[t.level + 1][t.parent_window()]
-        src = output[t.level][t.window()]
-        condense(src, dest)
+    print(t.level)
+    t.dispatch()
 
 
 
