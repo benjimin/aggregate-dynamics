@@ -113,6 +113,7 @@ print(levels)
 class Tile:
     size = 2
     zoom = 2
+    _data = None
     def __init__(self, level, y_offset, x_offset, parent=None):
         self.level = level
         self.x_offset = x_offset
@@ -138,6 +139,32 @@ class Tile:
         return slice(y, y + s), slice(x, x + s)
     def __repr__(self):
         return 'Tile' + str((self.level, self.y_offset, self.x_offset))
+    def data(self):
+        if self._data is None:
+            print('Allocate', self.level, self.y_offset, self.x_offset)
+            self._data = np.empty((size, size))
+        return self._data
+    def dispatch(self):
+        src = self.data()
+
+        if self.parent is not None:
+            dest = self.parent.data()
+
+            y = self.y_offset // self.zoom % self.size
+            x = self.x_offset // self.zoom % self.size
+            s = self.size // self.zoom
+            w = slice(y, y + s), (x, x + s)
+            dest = dest[w]
+
+            src.reshape(s, self.zoom, s, self.zoom
+                        ).mean(axis=(1, -1), out=dest)
+
+        print('Dispatch', self.level, self.y_offset, self.x_offset)
+
+        self._data = None
+
+
+
 
 def coarse_tiles():
     mag = zoomfactor ** levels
