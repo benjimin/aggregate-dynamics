@@ -1,6 +1,7 @@
 import math
 import numpy as np
 from collections import deque
+import rasterio.windows
 
 """
 The intended product is an image pyramid.
@@ -47,39 +48,7 @@ One approach is to lazily expand a task queue, to determine the order in which
 to pre-fetch the base tiles.
 
 """
-"""
-def tileBuilder(xres, yres, zoomfactor=2, size=128):
-    assert xres > 0 and yres > 0
 
-    assert size // zoomfactor == 0 # alignment
-
-    levels = int(math.log(min([xres, yres])/size, zoomfactor))
-
-    # extra alignment.. not really required
-    assert xres // (zoomfactor**levels * 128) == 0
-    assert yres // (zoomfactor**levels * 128) == 0
-
-    class Tile:
-        data = None
-        def __init__(self, level, parent, extent):
-            pass
-        def subtiles(self):
-            yield
-
-def coarsest_level():
-    for i in range(1):
-        for j in range(2):
-            tile = Tile()
-            yield tile
-
-def pyramid(toplevel):
-    for tile
-
-for tile in queue:
-    if tile.data is None:
-        pass
-    if tile.ready
-"""
 ## Test
 
 def trivial(a, level, method='mean'):
@@ -141,9 +110,10 @@ class Tile:
         return 'Tile' + str((self.level, self.y_offset, self.x_offset))
     def data(self):
         if self._data is None:
-            self._data = np.empty((size, size))
             if self.level == 0:
                 self._data = raw[self.window()]
+            else:
+                self._data = np.empty((size, size))
         return self._data
     def dispatch(self):
         src = self.data()
@@ -181,26 +151,11 @@ def depthfirst(tile=None):
         yield from depthfirst(t)
         yield t
 
-output = [np.zeros(shape(i)) for i in range(levels + 1)]
-
-
-
-    # issue: this still always "gets" from the cache,
-    # accessing the memoryview directly without signaling
-    # whether it is performing modifications vs reads.
-
-    # Probably just means, can't do in-place operations.
-
-    # Trouble is signaling a cache when it is safe to
-    # discard a finished tile.. Probably do need to have the sole reference
-    # be on the tile/task that is going to pass out of scope.
-
-output[0] = raw
+output = [raw] + [np.zeros(shape(i)) for i in range(1, levels + 1)]
 
 print('~'*10)
 
 for t in depthfirst():
-    print(t.level)
     t.dispatch()
 
 
@@ -209,47 +164,23 @@ print(output[0])
 print(output[1])
 print(output[2])
 
+class Storage:
+    def __init__(self, path, write=False):
+        self.ds = rasterio.open(path, mode='w' if write else 'r')
+    def __del__(self):
+        self.ds.close()
+    def __getitem__(self, key):
+        w = rasterio.windows.Window.from_slices(*key)
+        return self.ds.read(1, window=w, boundless=True, fill_value=np.nan)
 
 
-"""
+example = '/g/data1a/u46/users/brl654/slightlybetterwofs/fastsummary/ratio_0_13_-45.tif'
 
+raw = Storage(example)
 
+size = 256
+zoomfactor = 2
 
-
-outputs = {i + 1: np.zeros(shape(i + 1)) for i in range(levels)}
-
-def coarse_tiles():
-    y, x = shape(levels)
-    for i in range(0, y, size):
-        for j in range(0, x, size):
-            yield levels, (slice(i, i + size), slice(j, j + size))
-
-def zoom_in(level, window):
-    w1, w2 = window
-    z = zoomfactor
-    return level - 1, tuple(slice(w.start * z, w.stop * z) for w in window)
-
-def iterate(window):
-    w0, w1 = window
-    seq = lambda s: range(s.start, s.stop, size)
-    for i in seq(w0):
-        for j in seq(w1):
-            yield slice(i, i + size), slice(j, j + size)
-
-def subtiles(level, window):
-    if level < 1:
-        return
-    for subwindow in iterate(zoom_in(level, window)[1]):
-        yield level - 1, subwindow
-
-def depthfirst(top=None):
-    branch = coarse_tiles() if top is None else subtiles(*top)
-    for i in branch:
-        yield from depthfirst(i)
-        yield i
-
-for level, window in depthfirst():
-    fine = outputs[level][window]
-    #fine.reshape
-
-"""
+yres, xres = raw.ds.shape
+levels = int(math.log(min([xres, yres])/size, zoomfactor))
+print(math.log(min([xres, yres])/size, zoomfactor))
